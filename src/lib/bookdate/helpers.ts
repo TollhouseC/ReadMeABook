@@ -50,7 +50,7 @@ export interface AIRecommendation {
  */
 async function enrichWithUserRatings(
   userId: string,
-  cachedBooks: CachedLibraryBook[],
+  cachedBooks: CachedLibraryBook[]
 ): Promise<LibraryBook[]> {
   try {
     // Get user's Plex token, plexId, and role
@@ -61,7 +61,7 @@ async function enrichWithUserRatings(
 
     if (!user) {
       logger.warn('User not found');
-      return cachedBooks.map((book) => ({
+      return cachedBooks.map(book => ({
         title: book.title,
         author: book.author,
         narrator: book.narrator || undefined,
@@ -72,28 +72,22 @@ async function enrichWithUserRatings(
     // Local admin users: Use cached ratings (from system Plex token)
     // Local admins authenticate with username/password, not Plex OAuth
     if (user.plexId.startsWith('local-')) {
-      logger.info(
-        'User is local admin, using cached ratings (from system Plex token)',
-      );
-      return cachedBooks.map((book) => ({
+      logger.info('User is local admin, using cached ratings (from system Plex token)');
+      return cachedBooks.map(book => ({
         title: book.title,
         author: book.author,
         narrator: book.narrator || undefined,
-        rating: book.userRating
-          ? parseFloat(book.userRating.toString())
-          : undefined,
+        rating: book.userRating ? parseFloat(book.userRating.toString()) : undefined,
       }));
     }
 
     // Plex-authenticated users (including admins): Fetch library with their token to get personal ratings
     // Note: /library/sections/{id}/all returns items with the authenticated user's ratings
-    logger.info(
-      'User is Plex-authenticated, fetching library with user token to get personal ratings',
-    );
+    logger.info('User is Plex-authenticated, fetching library with user token to get personal ratings');
 
     if (!user.authToken) {
       logger.warn('User has no Plex auth token');
-      return cachedBooks.map((book) => ({
+      return cachedBooks.map(book => ({
         title: book.title,
         author: book.author,
         narrator: book.narrator || undefined,
@@ -107,7 +101,7 @@ async function enrichWithUserRatings(
 
     if (!plexConfig.serverUrl || !plexConfig.libraryId) {
       logger.warn('No Plex server URL or library ID configured');
-      return cachedBooks.map((book) => ({
+      return cachedBooks.map(book => ({
         title: book.title,
         author: book.author,
         narrator: book.narrator || undefined,
@@ -136,7 +130,7 @@ async function enrichWithUserRatings(
       // Get server machine ID from stored config (no need to access system token)
       if (!plexConfig.machineIdentifier) {
         logger.error('Server machine identifier not configured');
-        return cachedBooks.map((book) => ({
+        return cachedBooks.map(book => ({
           title: book.title,
           author: book.author,
           narrator: book.narrator || undefined,
@@ -147,14 +141,12 @@ async function enrichWithUserRatings(
       const serverMachineId = plexConfig.machineIdentifier;
       const serverAccessToken = await plexService.getServerAccessToken(
         serverMachineId,
-        userPlexToken,
+        userPlexToken
       );
 
       if (!serverAccessToken) {
-        logger.warn(
-          'Could not get server access token for user (may not have server access)',
-        );
-        return cachedBooks.map((book) => ({
+        logger.warn('Could not get server access token for user (may not have server access)');
+        return cachedBooks.map(book => ({
           title: book.title,
           author: book.author,
           narrator: book.narrator || undefined,
@@ -168,16 +160,14 @@ async function enrichWithUserRatings(
       const userLibrary = await plexService.getLibraryContent(
         plexConfig.serverUrl,
         serverAccessToken,
-        plexConfig.libraryId,
+        plexConfig.libraryId
       );
 
-      logger.info(
-        `Fetched ${userLibrary.length} items from Plex with user's token`,
-      );
+      logger.info(`Fetched ${userLibrary.length} items from Plex with user's token`);
 
       // Create a map of guid/ratingKey -> userRating for quick lookup
       const ratingsMap = new Map<string, number>();
-      userLibrary.forEach((item) => {
+      userLibrary.forEach(item => {
         if (item.userRating) {
           // Try to match by guid first (most reliable)
           if (item.guid) {
@@ -193,7 +183,7 @@ async function enrichWithUserRatings(
       logger.info(`Found ${ratingsMap.size} rated items for non-admin user`);
 
       // Enrich cached books with user's ratings from the fetched library
-      return cachedBooks.map((book) => {
+      return cachedBooks.map(book => {
         // Try to find rating by guid first (most reliable), then ratingKey
         let rating: number | undefined;
         if (book.plexGuid) {
@@ -210,37 +200,27 @@ async function enrichWithUserRatings(
           rating: rating,
         };
       });
+
     } catch (fetchError: any) {
-      if (
-        fetchError?.response?.status === 401 ||
-        fetchError?.message?.includes('401')
-      ) {
-        logger.warn(
-          'User token unauthorized for library access (shared users may not have direct API access)',
-        );
+      if (fetchError?.response?.status === 401 || fetchError?.message?.includes('401')) {
+        logger.warn('User token unauthorized for library access (shared users may not have direct API access)');
         logger.warn('Falling back to recommendations without user ratings');
       } else {
-        logger.error('Failed to fetch library with user token', {
-          error:
-            fetchError instanceof Error
-              ? fetchError.message
-              : String(fetchError),
-        });
+        logger.error('Failed to fetch library with user token', { error: fetchError instanceof Error ? fetchError.message : String(fetchError) });
       }
       // Fallback: return books without ratings
-      return cachedBooks.map((book) => ({
+      return cachedBooks.map(book => ({
         title: book.title,
         author: book.author,
         narrator: book.narrator || undefined,
         rating: undefined,
       }));
     }
+
   } catch (error) {
-    logger.error('Error enriching books with user ratings', {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    logger.error('Error enriching books with user ratings', { error: error instanceof Error ? error.message : String(error) });
     // Fallback: return books without ratings on error
-    return cachedBooks.map((book) => ({
+    return cachedBooks.map(book => ({
       title: book.title,
       author: book.author,
       narrator: book.narrator || undefined,
@@ -257,7 +237,7 @@ async function enrichWithUserRatings(
  */
 export async function getUserLibraryBooks(
   userId: string,
-  scope: 'full' | 'listened' | 'rated' | 'favorites',
+  scope: 'full' | 'listened' | 'rated' | 'favorites'
 ): Promise<LibraryBook[]> {
   try {
     const configService = getConfigService();
@@ -265,9 +245,7 @@ export async function getUserLibraryBooks(
 
     // Early validation: audiobookshelf doesn't support ratings
     if (backendMode === 'audiobookshelf' && scope === 'rated') {
-      logger.warn(
-        'Audiobookshelf does not support ratings, falling back to full library',
-      );
+      logger.warn('Audiobookshelf does not support ratings, falling back to full library');
       scope = 'full';
     }
 
@@ -283,17 +261,13 @@ export async function getUserLibraryBooks(
         : [];
 
       if (favoriteIds.length === 0) {
-        logger.warn(
-          'Favorites scope selected but no favorites stored, falling back to full library',
-        );
+        logger.warn('Favorites scope selected but no favorites stored, falling back to full library');
         scope = 'full';
       } else {
         // Get library ID for filtering
         let libraryId: string;
         if (backendMode === 'audiobookshelf') {
-          const absLibraryId = await configService.get(
-            'audiobookshelf.library_id',
-          );
+          const absLibraryId = await configService.get('audiobookshelf.library_id');
           if (!absLibraryId) {
             logger.warn('No Audiobookshelf library ID configured');
             return [];
@@ -325,9 +299,7 @@ export async function getUserLibraryBooks(
           orderBy: { addedAt: 'desc' },
         });
 
-        logger.info(
-          `Fetched ${cachedBooks.length} favorite books for user ${userId}`,
-        );
+        logger.info(`Fetched ${cachedBooks.length} favorite books for user ${userId}`);
 
         // For Plex: Enrich with user's personal ratings
         // For Audiobookshelf: Skip enrichment (no rating support)
@@ -335,7 +307,7 @@ export async function getUserLibraryBooks(
           return await enrichWithUserRatings(userId, cachedBooks);
         } else {
           // Audiobookshelf: Map to LibraryBook without ratings
-          return cachedBooks.map((book) => ({
+          return cachedBooks.map(book => ({
             title: book.title,
             author: book.author,
             narrator: book.narrator || undefined,
@@ -410,24 +382,23 @@ export async function getUserLibraryBooks(
 
       // Filter to rated books if scope is 'rated'
       if (scope === 'rated') {
-        const ratedBooks = enrichedBooks.filter((book) => book.rating != null);
+        const ratedBooks = enrichedBooks.filter(book => book.rating != null);
         return isLocalAdmin ? ratedBooks : ratedBooks.slice(0, 40);
       }
 
       return enrichedBooks;
     } else {
       // Audiobookshelf: Map to LibraryBook without ratings
-      return cachedBooks.map((book) => ({
+      return cachedBooks.map(book => ({
         title: book.title,
         author: book.author,
         narrator: book.narrator || undefined,
         rating: undefined, // ABS doesn't support ratings
       }));
     }
+
   } catch (error) {
-    logger.error('Error fetching library books', {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    logger.error('Error fetching library books', { error: error instanceof Error ? error.message : String(error) });
     return [];
   }
 }
@@ -441,7 +412,7 @@ export async function getUserLibraryBooks(
  */
 export async function getUserRecentSwipes(
   userId: string,
-  limit: number = 10,
+  limit: number = 10
 ): Promise<SwipeHistory[]> {
   try {
     // First, get the most recent non-dismiss swipes (left=reject, right=like/request)
@@ -487,11 +458,11 @@ export async function getUserRecentSwipes(
 
     // Combine both lists, maintaining chronological order (most recent first)
     const allSwipes = [...nonDismissSwipes, ...dismissSwipes].sort(
-      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
     );
 
     logger.info(
-      `Fetched ${allSwipes.length} swipes: ${nonDismissSwipes.length} non-dismiss, ${dismissSwipes.length} dismiss`,
+      `Fetched ${allSwipes.length} swipes: ${nonDismissSwipes.length} non-dismiss, ${dismissSwipes.length} dismiss`
     );
 
     return allSwipes.map((s) => ({
@@ -500,10 +471,9 @@ export async function getUserRecentSwipes(
       action: s.action,
       markedAsKnown: s.markedAsKnown,
     }));
+
   } catch (error) {
-    logger.error('Error fetching swipe history', {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    logger.error('Error fetching swipe history', { error: error instanceof Error ? error.message : String(error) });
     return [];
   }
 }
@@ -516,11 +486,11 @@ export async function getUserRecentSwipes(
  */
 export async function buildAIPrompt(
   userId: string,
-  config: { libraryScope: string; customPrompt?: string | null },
+  config: { libraryScope: string; customPrompt?: string | null }
 ): Promise<string> {
   const libraryBooks = await getUserLibraryBooks(
     userId,
-    config.libraryScope as 'full' | 'listened' | 'rated' | 'favorites',
+    config.libraryScope as 'full' | 'listened' | 'rated' | 'favorites'
   );
 
   const swipeHistory = await getUserRecentSwipes(userId, 10);
@@ -535,7 +505,7 @@ export async function buildAIPrompt(
   let instructions =
     'Recommend 15-20 audiobooks the user would enjoy based on their library and swipe history. ' +
     'CRITICAL RULES:\n' +
-    "1. DO NOT recommend any books already in the user's library (check titles carefully)\n" +
+    '1. DO NOT recommend any books already in the user\'s library (check titles carefully)\n' +
     '2. DO NOT recommend any books from the swipe history (whether requested, rejected, dismissed, or marked_as_liked)\n' +
     '3. You must provide 15-20 diverse recommendations, not just 3-5\n' +
     '4. Focus on variety across genres, authors, and styles\n' +
@@ -547,11 +517,8 @@ export async function buildAIPrompt(
 
   // Add special instruction for favorites scope
   if (config.libraryScope === 'favorites') {
-    instructions +=
-      '\n\n' +
-      'IMPORTANT: The user has specifically handpicked these ' +
-      libraryBooks.length +
-      ' books as their personal favorites. ' +
+    instructions += '\n\n' +
+      'IMPORTANT: The user has specifically handpicked these ' + libraryBooks.length + ' books as their personal favorites. ' +
       'These represent their preferred genres, authors, themes, and styles. Use these as PRIMARY INSPIRATION for your recommendations. ' +
       'Find books that capture the essence of what makes these favorites special to the user.';
   }
@@ -560,17 +527,12 @@ export async function buildAIPrompt(
     task: 'recommend_audiobooks',
     user_context: {
       library_books: libraryBooks.slice(0, 40),
-      swipe_history: swipeHistory.map((s) => ({
+      swipe_history: swipeHistory.map(s => ({
         title: s.title,
         author: s.author,
-        user_action:
-          s.action === 'right'
-            ? s.markedAsKnown
-              ? 'marked_as_liked'
-              : 'requested'
-            : s.action === 'left'
-              ? 'rejected'
-              : 'dismissed',
+        user_action: s.action === 'right'
+          ? (s.markedAsKnown ? 'marked_as_liked' : 'requested')
+          : s.action === 'left' ? 'rejected' : 'dismissed',
       })),
       custom_preferences: config.customPrompt || null,
     },
@@ -596,7 +558,7 @@ export async function callAI(
   model: string,
   encryptedApiKey: string,
   prompt: string,
-  baseUrl?: string | null,
+  baseUrl?: string | null
 ): Promise<{ recommendations: AIRecommendation[] }> {
   const encryptionService = getEncryptionService();
   let apiKey = '';
@@ -642,11 +604,10 @@ export async function callAI(
     },
   };
 
-  const systemMessage =
-    'You are an expert audiobook recommender. ' +
+  const systemMessage = 'You are an expert audiobook recommender. ' +
     'Your task is to recommend 15-20 NEW audiobooks that the user would enjoy. ' +
-    "NEVER recommend books that are already in the user's library or swipe history. " +
-    "Focus on discovering books they haven't seen yet.";
+    'NEVER recommend books that are already in the user\'s library or swipe history. ' +
+    'Focus on discovering books they haven\'t seen yet.';
 
   if (provider === 'openai') {
     const requestBody = {
@@ -669,7 +630,7 @@ export async function callAI(
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(requestBody),
@@ -677,10 +638,7 @@ export async function callAI(
 
     if (!response.ok) {
       const errorText = await response.text();
-      logger.error('OpenAI API error', {
-        status: response.status,
-        error: errorText,
-      });
+      logger.error('OpenAI API error', { status: response.status, error: errorText });
       throw new Error(`OpenAI API error: ${response.status} ${errorText}`);
     }
 
@@ -688,6 +646,7 @@ export async function callAI(
     const content = data.choices[0].message.content;
     logger.debug('OpenAI response:', { content });
     return JSON.parse(content);
+
   } else if (provider === 'claude') {
     const userMessage = `${systemMessage}\n\n${prompt}\n\nIMPORTANT: Provide exactly 15-20 recommendations. Return ONLY valid JSON with no additional text or formatting.`;
     const requestBody = {
@@ -715,10 +674,7 @@ export async function callAI(
 
     if (!response.ok) {
       const errorText = await response.text();
-      logger.error('Claude API error', {
-        status: response.status,
-        error: errorText,
-      });
+      logger.error('Claude API error', { status: response.status, error: errorText });
       throw new Error(`Claude API error: ${response.status} ${errorText}`);
     }
 
@@ -734,6 +690,7 @@ export async function callAI(
 
     logger.debug('Claude cleaned response:', { cleanedContent });
     return JSON.parse(cleanedContent);
+
   } else if (provider === 'gemini') {
     const requestBody = {
       systemInstruction: {
@@ -745,48 +702,42 @@ export async function callAI(
         },
       ],
       generationConfig: {
-        responseMimeType: 'application/json',
+        responseMimeType: "application/json",
         responseSchema: {
-          type: 'OBJECT',
+          type: "OBJECT",
           properties: {
             recommendations: {
-              type: 'ARRAY',
+              type: "ARRAY",
               items: {
-                type: 'OBJECT',
+                type: "OBJECT",
                 properties: {
-                  title: { type: 'STRING' },
-                  author: { type: 'STRING' },
-                  reason: { type: 'STRING' },
+                  title: { type: "STRING" },
+                  author: { type: "STRING" },
+                  reason: { type: "STRING" },
                 },
-                required: ['title', 'author', 'reason'],
+                required: ["title", "author", "reason"],
               },
             },
           },
-          required: ['recommendations'],
+          required: ["recommendations"],
         },
       },
     };
 
     logger.debug('Gemini request body:', { requestBody });
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': apiKey,
-        },
-        body: JSON.stringify(requestBody),
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
       },
-    );
+      body: JSON.stringify(requestBody),
+    });
 
     if (!response.ok) {
       const errorText = await response.text();
-      logger.error('Gemini API error', {
-        status: response.status,
-        error: errorText,
-      });
+      logger.error('Gemini API error', { status: response.status, error: errorText });
       throw new Error(`Gemini API error: ${response.status} ${errorText}`);
     }
 
@@ -807,6 +758,7 @@ export async function callAI(
 
     logger.debug('Gemini cleaned response:', { cleanedContent });
     return JSON.parse(cleanedContent);
+
   } else if (provider === 'custom') {
     if (!baseUrl) {
       throw new Error('Base URL is required for custom provider');
@@ -850,23 +802,13 @@ export async function callAI(
 
       if (!response.ok) {
         const errorText = await response.text();
-        logger.error('Custom provider API error', {
-          status: response.status,
-          error: errorText,
-        });
+        logger.error('Custom provider API error', { status: response.status, error: errorText });
 
         // If response_format not supported, retry without it and add instructions to prompt
-        if (
-          errorText.includes('response_format') ||
-          errorText.includes('json_schema')
-        ) {
-          logger.info(
-            'Retrying without response_format (provider does not support structured outputs)',
-          );
+        if (errorText.includes('response_format') || errorText.includes('json_schema')) {
+          logger.info('Retrying without response_format (provider does not support structured outputs)');
           delete requestBody.response_format;
-          requestBody.messages[0].content =
-            systemMessage +
-            ' Return ONLY valid JSON with no additional text or formatting.';
+          requestBody.messages[0].content = systemMessage + ' Return ONLY valid JSON with no additional text or formatting.';
 
           const retryResponse = await fetch(endpoint, {
             method: 'POST',
@@ -876,9 +818,7 @@ export async function callAI(
 
           if (!retryResponse.ok) {
             const retryErrorText = await retryResponse.text();
-            throw new Error(
-              `Custom provider API error: ${retryResponse.status} ${retryErrorText}`,
-            );
+            throw new Error(`Custom provider API error: ${retryResponse.status} ${retryErrorText}`);
           }
 
           const retryData = await retryResponse.json();
@@ -890,15 +830,11 @@ export async function callAI(
             .replace(/\s*```$/i, '')
             .trim();
 
-          logger.debug('Custom provider cleaned response (fallback):', {
-            cleanedContent,
-          });
+          logger.debug('Custom provider cleaned response (fallback):', { cleanedContent });
           return JSON.parse(cleanedContent);
         }
 
-        throw new Error(
-          `Custom provider API error: ${response.status} ${errorText}`,
-        );
+        throw new Error(`Custom provider API error: ${response.status} ${errorText}`);
       }
 
       const data = await response.json();
@@ -912,10 +848,12 @@ export async function callAI(
         .trim();
 
       return JSON.parse(cleanedContent);
+
     } catch (error: any) {
       logger.error('Custom provider error:', error);
       throw new Error(`Custom provider error: ${error.message}`);
     }
+
   } else {
     throw new Error(`Invalid provider: ${provider}`);
   }
@@ -929,7 +867,7 @@ export async function callAI(
  */
 export async function matchToAudnexus(
   title: string,
-  author: string,
+  author: string
 ): Promise<{
   asin: string;
   title: string;
@@ -981,9 +919,7 @@ export async function matchToAudnexus(
     }
 
     // Step 2: Search Audible.com for the book
-    logger.info(
-      `Not in cache, searching Audible for "${title}" by ${author}...`,
-    );
+    logger.info(`Not in cache, searching Audible for "${title}" by ${author}...`);
     const audibleService = new AudibleService();
     const searchQuery = `${title} ${author}`;
     const searchResults = await audibleService.search(searchQuery, 1);
@@ -995,9 +931,7 @@ export async function matchToAudnexus(
 
     // Take the first result (best match)
     const firstResult = searchResults.results[0];
-    logger.info(
-      `Found on Audible: "${firstResult.title}" (ASIN: ${firstResult.asin})`,
-    );
+    logger.info(`Found on Audible: "${firstResult.title}" (ASIN: ${firstResult.asin})`);
 
     // Step 3: Use ASIN to fetch full details from Audnexus (or Audible as fallback)
     const details = await audibleService.getAudiobookDetails(firstResult.asin);
@@ -1018,10 +952,9 @@ export async function matchToAudnexus(
       description: details.description || null,
       coverUrl: details.coverArtUrl || null,
     };
+
   } catch (error) {
-    logger.error(`Audnexus matching error for "${title}"`, {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    logger.error(`Audnexus matching error for "${title}"`, { error: error instanceof Error ? error.message : String(error) });
     return null;
   }
 }
@@ -1039,7 +972,7 @@ export async function isInLibrary(
   userId: string,
   title: string,
   author: string,
-  asin?: string,
+  asin?: string
 ): Promise<boolean> {
   try {
     // Use the centralized matching algorithm from audiobook-matcher.ts
@@ -1051,16 +984,12 @@ export async function isInLibrary(
     });
 
     if (match) {
-      logger.info(
-        `Book "${title}" by ${author} found in library (matched to: "${match.title}")`,
-      );
+      logger.info(`Book "${title}" by ${author} found in library (matched to: "${match.title}")`);
     }
 
     return !!match;
   } catch (error) {
-    logger.error(`Error checking library for "${title}"`, {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    logger.error(`Error checking library for "${title}"`, { error: error instanceof Error ? error.message : String(error) });
     return false;
   }
 }
@@ -1073,7 +1002,7 @@ export async function isInLibrary(
  */
 export async function isAlreadyRequested(
   userId: string,
-  asin: string,
+  asin: string
 ): Promise<boolean> {
   const request = await prisma.request.findFirst({
     where: {
@@ -1099,7 +1028,7 @@ export async function isAlreadyRequested(
 export async function isAlreadySwiped(
   userId: string,
   title: string,
-  author: string,
+  author: string
 ): Promise<boolean> {
   const swipe = await prisma.bookDateSwipe.findFirst({
     where: {
