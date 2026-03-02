@@ -38,107 +38,210 @@ export async function fetchHardcoverList(
   apiToken: string,
   listIdStr: string,
 ): Promise<{ listName: string; books: HardcoverApiBook[] }> {
-  // If we can parse as integer, it could be a List ID or Status ID. If UUID, we adjust query
-  const isUuid =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      listIdStr,
+  // Check if it's a status list
+  const isStatus = listIdStr.startsWith('status-');
+
+  if (isStatus) {
+    const statusId = parseInt(listIdStr.replace('status-', ''), 10);
+    const query = `
+      query GetStatusBooks($statusId: Int!) {
+        user_books(where: {status_id: {_eq: $statusId}}) {
+          book {
+            id
+            title
+            contributions {
+              author {
+                name
+              }
+            }
+            cached_image
+            image {
+              url
+            }
+          }
+        }
+      }
+    `;
+
+    const response = await axios.post(
+      HARDCOVER_API_URL,
+      { query, variables: { statusId } },
+      {
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 30000,
+      },
     );
 
-  // Example generic query to Hardcover. Adjust the table/format as needed for their schema.
-  // Hardcover lists use custom lists (list_books) or statuses (user_books).
-  // Assuming list_books for this implementation.
-  const query = `
-    query GetListBooks($listId: Int!) {
-      list_books(where: {list_id: {_eq: $listId}}) {
-        list {
-          name
-        }
-        book {
-          id
-          title
-          author_books {
-            author {
-              name
-            }
+    if (response.data?.errors) {
+      throw new Error(
+        `Hardcover API Error: ${response.data.errors[0]?.message}`,
+      );
+    }
+
+    const userBooks = response.data?.data?.user_books || [];
+    let listName = 'Hardcover Status List';
+
+    // Map status numbers to names
+    const statusNames: Record<number, string> = {
+      1: 'Want to Read',
+      2: 'Currently Reading',
+      3: 'Read',
+      4: 'Did Not Finish',
+    };
+    listName = statusNames[statusId] || `Status ${statusId}`;
+
+    const books: HardcoverApiBook[] = [];
+    for (const item of userBooks) {
+      const book = item.book;
+      if (!book || !book.id) continue;
+
+      const authorName =
+        book.contributions?.[0]?.author?.name || 'Unknown Author';
+      const coverUrl = book.cached_image || book.image?.url || undefined;
+
+      books.push({
+        bookId: book.id.toString(),
+        title: book.title || 'Unknown Title',
+        author: authorName,
+        coverUrl,
+      });
+    }
+
+    return { listName, books };
+  } else {
+    // Original list_books logic
+    let isUuid = false;
+    let isIntId = false;
+    let extractedSlug = listIdStr;
+
+    if (
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        listIdStr,
+      )
+    ) {
+      isUuid = true;
+    } else if (/^\d+$/.test(listIdStr)) {
+      isIntId = true;
+    } else {
+      try {
+        if (listIdStr.includes('hardcover.app')) {
+          const url = new URL(
+            listIdStr.startsWith('http') ? listIdStr : `https://${listIdStr}`,
+          );
+          const parts = url.pathname.split('/').filter(Boolean);
+          if (parts.length > 0) {
+            extractedSlug = parts[parts.length - 1];
           }
-          cached_image
-          image {
-            url
+        }
+      } catch (e) {
+        // use extractedSlug as-is
+      }
+    }
+
+    const query = `
+      query GetListBooks($listId: Int!) {
+        list_books(where: {list_id: {_eq: $listId}}) {
+          list { name }
+          book {
+            id title cached_image image { url }
+            contributions { author { name } }
           }
         }
       }
-    }
-  `;
+    `;
 
-  // Provide fallback UUID query if Hardcover uses UUIDs instead.
-  const queryUuid = `
-    query GetListBooksUuid($listId: uuid!) {
-      list_books(where: {list_id: {_eq: $listId}}) {
-        list {
-          name
-        }
-        book {
-          id
-          title
-          author_books {
-            author {
-              name
-            }
-          }
-          cached_image
-          image {
-            url
+    const queryUuid = `
+      query GetListBooksUuid($listId: uuid!) {
+        list_books(where: {list_id: {_eq: $listId}}) {
+          list { name }
+          book {
+            id title cached_image image { url }
+            contributions { author { name } }
           }
         }
       }
+    `;
+
+    const querySlug = `
+      query GetListBooksBySlug($slug: String!) {
+        lists(where: {slug: {_eq: $slug}}, limit: 1) {
+          name
+          list_books {
+            book {
+              id title cached_image image { url }
+              contributions { author { name } }
+            }
+          }
+        }
+      }
+    `;
+
+    const isSlug = !isUuid && !isIntId;
+    const activeQuery = isSlug ? querySlug : isUuid ? queryUuid : query;
+    const variables = isSlug
+      ? { slug: extractedSlug }
+      : { listId: isUuid ? listIdStr : parseInt(listIdStr, 10) };
+
+    const response = await axios.post(
+      HARDCOVER_API_URL,
+      {
+        query: activeQuery,
+        variables,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 30000,
+      },
+    );
+
+    if (response.data?.errors) {
+      throw new Error(
+        `Hardcover API Error: ${response.data.errors[0]?.message}`,
+      );
     }
-  `;
 
-  const response = await axios.post(
-    HARDCOVER_API_URL,
-    {
-      query: isUuid ? queryUuid : query,
-      variables: {
-        listId: isUuid ? listIdStr : parseInt(listIdStr, 10),
-      },
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${apiToken}`,
-        'Content-Type': 'application/json',
-      },
-      timeout: 15000,
-    },
-  );
+    let listName = 'Hardcover List';
+    let listBooks: any[] = [];
 
-  if (response.data?.errors) {
-    throw new Error(`Hardcover API Error: ${response.data.errors[0]?.message}`);
+    if (isSlug) {
+      const listsData = response.data?.data?.lists || [];
+      if (listsData.length === 0) {
+        throw new Error(`Could not find a list with slug "${extractedSlug}"`);
+      }
+      listName = listsData[0].name || listName;
+      listBooks = listsData[0].list_books || [];
+    } else {
+      listBooks = response.data?.data?.list_books || [];
+      if (listBooks.length > 0 && listBooks[0].list?.name) {
+        listName = listBooks[0].list.name;
+      }
+    }
+
+    const books: HardcoverApiBook[] = [];
+    for (const item of listBooks) {
+      const book = item.book;
+      if (!book || !book.id) continue;
+
+      const authorName =
+        book.contributions?.[0]?.author?.name || 'Unknown Author';
+      const coverUrl = book.cached_image || book.image?.url || undefined;
+
+      books.push({
+        bookId: book.id.toString(),
+        title: book.title || 'Unknown Title',
+        author: authorName,
+        coverUrl,
+      });
+    }
+
+    return { listName, books };
   }
-
-  const listBooks = response.data?.data?.list_books || [];
-  let listName = 'Hardcover List';
-  if (listBooks.length > 0 && listBooks[0].list?.name) {
-    listName = listBooks[0].list.name;
-  }
-
-  const books: HardcoverApiBook[] = [];
-  for (const item of listBooks) {
-    const book = item.book;
-    if (!book || !book.id) continue;
-
-    // Hardcover authors can be multiple, we pick the first one or join them
-    const authorName = book.author_books?.[0]?.author?.name || 'Unknown Author';
-    const coverUrl = book.cached_image || book.image?.url || undefined;
-
-    books.push({
-      bookId: book.id.toString(),
-      title: book.title || 'Unknown Title',
-      author: authorName,
-      coverUrl,
-    });
-  }
-
-  return { listName, books };
 }
 
 export interface HardcoverSyncStats {

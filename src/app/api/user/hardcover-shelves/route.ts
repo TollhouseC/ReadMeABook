@@ -95,7 +95,13 @@ export async function POST(request: NextRequest) {
       }
 
       const body = await req.json();
-      const { listId, apiToken } = AddShelfSchema.parse(body);
+      let { listId, apiToken } = AddShelfSchema.parse(body);
+
+      // Clean up token in case user pasted "Bearer " prefix
+      apiToken = apiToken.trim();
+      if (apiToken.toLowerCase().startsWith('bearer ')) {
+        apiToken = apiToken.slice(7).trim();
+      }
 
       // Check for duplicate
       const existing = await prisma.hardcoverShelf.findUnique({

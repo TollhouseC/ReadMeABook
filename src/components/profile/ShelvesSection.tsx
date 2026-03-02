@@ -9,8 +9,7 @@ import React, { useState } from 'react';
 import { useShelves, GenericShelf } from '@/lib/hooks/useShelves';
 import { useDeleteGoodreadsShelf } from '@/lib/hooks/useGoodreadsShelves';
 import { useDeleteHardcoverShelf } from '@/lib/hooks/useHardcoverShelves';
-import { AddGoodreadsShelfModal } from '@/components/ui/AddGoodreadsShelfModal';
-import { AddHardcoverShelfModal } from '@/components/ui/AddHardcoverShelfModal';
+import { AddShelfModal } from '@/components/ui/AddShelfModal';
 import { AudiobookDetailsModal } from '@/components/audiobooks/AudiobookDetailsModal';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import { cn } from '@/lib/utils/cn';
@@ -40,9 +39,7 @@ export function ShelvesSection() {
   const { squareCovers } = usePreferences();
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [showProviderSelect, setShowProviderSelect] = useState(false);
-  const [showAddGoodreads, setShowAddGoodreads] = useState(false);
-  const [showAddHardcover, setShowAddHardcover] = useState(false);
+  const [showAddShelf, setShowAddShelf] = useState(false);
   const [selectedAsin, setSelectedAsin] = useState<string | null>(null);
 
   const handleDelete = async (shelf: GenericShelf) => {
@@ -95,7 +92,7 @@ export function ShelvesSection() {
 
         {shelves.length > 0 && (
           <button
-            onClick={() => setShowProviderSelect(true)}
+            onClick={() => setShowAddShelf(true)}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700/70 hover:border-gray-300 dark:hover:border-gray-600 transition-all duration-200 shadow-sm"
           >
             <svg
@@ -136,28 +133,13 @@ export function ShelvesSection() {
           ))}
         </div>
       ) : (
-        <EmptyState onAdd={() => setShowProviderSelect(true)} />
+        <EmptyState onAdd={() => setShowAddShelf(true)} />
       )}
 
       {/* Modals */}
-      <ProviderSelectModal
-        isOpen={showProviderSelect}
-        onClose={() => setShowProviderSelect(false)}
-        onSelect={(provider) => {
-          setShowProviderSelect(false);
-          if (provider === 'goodreads') setShowAddGoodreads(true);
-          else if (provider === 'hardcover') setShowAddHardcover(true);
-        }}
-      />
-
-      <AddGoodreadsShelfModal
-        isOpen={showAddGoodreads}
-        onClose={() => setShowAddGoodreads(false)}
-      />
-
-      <AddHardcoverShelfModal
-        isOpen={showAddHardcover}
-        onClose={() => setShowAddHardcover(false)}
+      <AddShelfModal
+        isOpen={showAddShelf}
+        onClose={() => setShowAddShelf(false)}
       />
 
       {selectedAsin && (
@@ -169,61 +151,6 @@ export function ShelvesSection() {
         />
       )}
     </section>
-  );
-}
-
-/* ─── Provider Select Modal ─── */
-
-function ProviderSelectModal({
-  isOpen,
-  onClose,
-  onSelect,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  onSelect: (provider: string) => void;
-}) {
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Select Provider" size="sm">
-      <div className="space-y-3">
-        <button
-          onClick={() => onSelect('goodreads')}
-          className="w-full flex items-center gap-4 p-4 text-left bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-amber-400 dark:hover:border-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10 rounded-xl transition-all"
-        >
-          <div className="w-10 h-10 rounded-lg bg-amber-100 dark:bg-amber-500/20 flex items-center justify-center flex-shrink-0">
-            <span className="text-amber-700 dark:text-amber-400 font-bold text-lg">
-              g
-            </span>
-          </div>
-          <div>
-            <h3 className="font-semibold text-gray-900 dark:text-white">
-              Goodreads
-            </h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              Connect via RSS feed URL
-            </p>
-          </div>
-        </button>
-        <button
-          onClick={() => onSelect('hardcover')}
-          className="w-full flex items-center gap-4 p-4 text-left bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-indigo-400 dark:hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 rounded-xl transition-all"
-        >
-          <div className="w-10 h-10 rounded-lg bg-indigo-100 dark:bg-indigo-500/20 flex items-center justify-center flex-shrink-0">
-            <span className="text-indigo-700 dark:text-indigo-400 font-bold text-lg">
-              H
-            </span>
-          </div>
-          <div>
-            <h3 className="font-semibold text-gray-900 dark:text-white">
-              Hardcover
-            </h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              Connect via API token and List ID
-            </p>
-          </div>
-        </button>
-      </div>
-    </Modal>
   );
 }
 
