@@ -8,6 +8,7 @@ import { requireAuth, AuthenticatedRequest } from '@/lib/middleware/auth';
 import { prisma } from '@/lib/db';
 import { fetchHardcoverList } from '@/lib/services/hardcover-sync.service';
 import { getJobQueueService } from '@/lib/services/job-queue.service';
+import { getEncryptionService } from '@/lib/services/encryption.service';
 import { z } from 'zod';
 import { RMABLogger } from '@/lib/utils/logger';
 
@@ -150,12 +151,15 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      const encryptionService = getEncryptionService();
+      const encryptedToken = encryptionService.encrypt(apiToken);
+
       const shelf = await prisma.hardcoverShelf.create({
         data: {
           userId: req.user.id,
           name: listName,
           listId,
-          apiToken,
+          apiToken: encryptedToken,
           bookCount,
           coverUrls:
             initialBooks.length > 0 ? JSON.stringify(initialBooks) : null,

@@ -10,6 +10,7 @@ import axios from 'axios';
 import { prisma } from '@/lib/db';
 import { getAudibleService } from '@/lib/integrations/audible.service';
 import { createRequestForUser } from '@/lib/services/request-creator.service';
+import { getEncryptionService } from '@/lib/services/encryption.service';
 import { RMABLogger } from '@/lib/utils/logger';
 
 const logger = RMABLogger.create('HardcoverSync');
@@ -330,9 +331,22 @@ async function processShelf(
     `Fetching Hardcover List "${shelf.name}" (user: ${shelf.user.plexUsername})`,
   );
 
+  const encryptionService = getEncryptionService();
+  let decryptedToken = shelf.apiToken;
+  try {
+    // Check if the token is encrypted (our new storage method format)
+    if (encryptionService.isEncryptedFormat(shelf.apiToken)) {
+      decryptedToken = encryptionService.decrypt(shelf.apiToken);
+    }
+  } catch (err) {
+    log.error(
+      `Failed to decrypt API token for user ${shelf.user.plexUsername}`,
+    );
+  }
+
   let fetchedData: { listName: string; books: HardcoverApiBook[] };
   try {
-    fetchedData = await fetchHardcoverList(shelf.apiToken, shelf.listId);
+    fetchedData = await fetchHardcoverList(decryptedToken, shelf.listId);
   } catch (error) {
     log.error(
       `Failed to fetch Hardcover list "${shelf.name}": ${error instanceof Error ? error.message : 'Unknown error'}`,

@@ -18,7 +18,8 @@ const jobQueueMock = vi.hoisted(() => ({
   addRetryFailedImportsJob: vi.fn(),
   addCleanupSeededTorrentsJob: vi.fn(),
   addMonitorRssFeedsJob: vi.fn(),
-  addSyncGoodreadsShelvesJob: vi.fn(),
+  addMonitorRssFeedsJob: vi.fn(),
+  addSyncShelvesJob: vi.fn(),
 }));
 
 const configServiceMock = vi.hoisted(() => ({
@@ -63,7 +64,9 @@ describe('SchedulerService', () => {
     prismaMock.scheduledJob.findFirst.mockResolvedValue(null);
     prismaMock.scheduledJob.create.mockResolvedValue({});
     prismaMock.scheduledJob.findMany
+      .mockResolvedValueOnce([]) // cleanupDeprecatedJobs
       .mockResolvedValueOnce([
+        // scheduleAllJobs
         {
           id: 'job-1',
           name: 'Audible Data Refresh',
@@ -72,9 +75,10 @@ describe('SchedulerService', () => {
           enabled: true,
         },
       ])
-      .mockResolvedValueOnce([]);
+      .mockResolvedValue([]); // triggerOverdueJobs
 
-    const { SchedulerService } = await import('@/lib/services/scheduler.service');
+    const { SchedulerService } =
+      await import('@/lib/services/scheduler.service');
     const service = new SchedulerService();
     await service.start();
 
@@ -83,7 +87,7 @@ describe('SchedulerService', () => {
       'audible_refresh',
       { scheduledJobId: 'job-1' },
       '0 0 * * *',
-      'scheduled-job-1'
+      'scheduled-job-1',
     );
   });
 
@@ -289,7 +293,7 @@ describe('SchedulerService', () => {
     ['retry_failed_imports', 'addRetryFailedImportsJob'],
     ['cleanup_seeded_torrents', 'addCleanupSeededTorrentsJob'],
     ['monitor_rss_feeds', 'addMonitorRssFeedsJob'],
-    ['sync_goodreads_shelves', 'addSyncGoodreadsShelvesJob'],
+    ['sync_reading_shelves', 'addSyncShelvesJob'],
   ])('triggers %s jobs with job queue', async (type, queueMethod) => {
     prismaMock.scheduledJob.findUnique.mockResolvedValue({
       id: 'job-type',
@@ -302,7 +306,8 @@ describe('SchedulerService', () => {
     (jobQueueMock as any)[queueMethod].mockResolvedValue('bull-type');
     prismaMock.scheduledJob.update.mockResolvedValue({});
 
-    const { SchedulerService } = await import('@/lib/services/scheduler.service');
+    const { SchedulerService } =
+      await import('@/lib/services/scheduler.service');
     const service = new SchedulerService();
     const jobId = await service.triggerJobNow('job-type');
 

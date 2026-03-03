@@ -189,7 +189,9 @@ export class SchedulerService {
           await this.unscheduleJob(job);
         }
         await prisma.scheduledJob.delete({ where: { id: job.id } });
-        logger.info(`Removed deprecated scheduled job: ${job.name} (${job.type})`);
+        logger.info(
+          `Removed deprecated scheduled job: ${job.name} (${job.type})`,
+        );
       }
     } catch (error) {
       logger.error('Failed to cleanup deprecated scheduled jobs', {
@@ -222,11 +224,13 @@ export class SchedulerService {
         job.type,
         { scheduledJobId: job.id },
         job.schedule,
-        `scheduled-${job.id}`
+        `scheduled-${job.id}`,
       );
       logger.info(`Job scheduled: ${job.name} (${job.schedule})`);
     } catch (error) {
-      logger.error(`Failed to schedule job ${job.name}`, { error: error instanceof Error ? error.message : String(error) });
+      logger.error(`Failed to schedule job ${job.name}`, {
+        error: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
   }
@@ -239,11 +243,13 @@ export class SchedulerService {
       await this.jobQueue.removeRepeatableJob(
         job.type,
         job.schedule,
-        `scheduled-${job.id}`
+        `scheduled-${job.id}`,
       );
       logger.info(`Job unscheduled: ${job.name}`);
     } catch (error) {
-      logger.error(`Failed to unschedule job ${job.name}`, { error: error instanceof Error ? error.message : String(error) });
+      logger.error(`Failed to unschedule job ${job.name}`, {
+        error: error instanceof Error ? error.message : String(error),
+      });
       // Don't throw - job might not exist in Bull yet
     }
   }
@@ -295,7 +301,7 @@ export class SchedulerService {
    */
   async updateScheduledJob(
     id: string,
-    dto: UpdateScheduledJobDto
+    dto: UpdateScheduledJobDto,
   ): Promise<ScheduledJob> {
     if (dto.schedule) {
       this.validateCronExpression(dto.schedule);
@@ -439,7 +445,8 @@ export class SchedulerService {
         throw new Error(errorMsg);
       }
 
-      libraryId = job.payload?.libraryId || absConfig['audiobookshelf.library_id'];
+      libraryId =
+        job.payload?.libraryId || absConfig['audiobookshelf.library_id'];
     } else {
       const plexConfig = await configService.getMany([
         'plex_url',
@@ -463,15 +470,18 @@ export class SchedulerService {
         throw new Error(errorMsg);
       }
 
-      libraryId = job.payload?.libraryId || plexConfig.plex_audiobook_library_id;
+      libraryId =
+        job.payload?.libraryId || plexConfig.plex_audiobook_library_id;
     }
 
-    logger.info(`Triggering ${backendMode} library scan for library: ${libraryId}`);
+    logger.info(
+      `Triggering ${backendMode} library scan for library: ${libraryId}`,
+    );
 
     return await this.jobQueue.addPlexScanJob(
       libraryId || '',
       job.payload?.partial,
-      job.payload?.path
+      job.payload?.path,
     );
   }
 
@@ -491,7 +501,6 @@ export class SchedulerService {
   private async triggerAudibleRefresh(job: any): Promise<string> {
     return await this.jobQueue.addAudibleRefreshJob(job.id);
   }
-
 
   /**
    * Enable a scheduled job
@@ -524,10 +533,12 @@ export class SchedulerService {
           await this.triggerJobNow(job.id);
 
           // Stagger triggers to avoid connection pool burst on startup
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
         }
       } catch (error) {
-        logger.error(`Failed to trigger overdue job "${job.name}"`, { error: error instanceof Error ? error.message : String(error) });
+        logger.error(`Failed to trigger overdue job "${job.name}"`, {
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
   }
@@ -600,13 +611,22 @@ export class SchedulerService {
     if (dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
       const hourNum = parseInt(hour, 10);
       const minuteNum = parseInt(minute, 10);
-      if (!isNaN(hourNum) && !isNaN(minuteNum) && hourNum >= 0 && hourNum <= 23 && minuteNum >= 0 && minuteNum <= 59) {
+      if (
+        !isNaN(hourNum) &&
+        !isNaN(minuteNum) &&
+        hourNum >= 0 &&
+        hourNum <= 23 &&
+        minuteNum >= 0 &&
+        minuteNum <= 59
+      ) {
         return 24 * 60 * 60 * 1000; // 24 hours
       }
     }
 
     // For other patterns, return a conservative default (24 hours)
-    logger.warn(`Unknown cron pattern "${cronExpression}", defaulting to 24 hours`);
+    logger.warn(
+      `Unknown cron pattern "${cronExpression}", defaulting to 24 hours`,
+    );
     return 24 * 60 * 60 * 1000;
   }
 
@@ -656,7 +676,7 @@ export class SchedulerService {
    * Trigger Reading shelves sync
    */
   private async triggerSyncShelves(job: any): Promise<string> {
-    return await this.jobQueue.addSyncShelvesJob(job.id, undefined, 'goodreads');
+    return await this.jobQueue.addSyncShelvesJob(job.id);
   }
 }
 
