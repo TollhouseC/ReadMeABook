@@ -13,6 +13,7 @@ import { useRequests } from '@/lib/hooks/useRequests';
 import { cn } from '@/lib/utils/cn';
 import { GoodreadsShelvesSection } from '@/components/profile/GoodreadsShelvesSection';
 import { ApiTokensSection } from '@/components/profile/ApiTokensSection';
+import { WatchedSeriesSection, WatchedAuthorsSection } from '@/components/profile/WatchedListsSection';
 
 const statConfig = [
   { key: 'total', label: 'Total', color: 'text-gray-900 dark:text-white' },
@@ -142,6 +143,12 @@ export default function ProfilePage() {
 
         {/* Goodreads Shelves */}
         <GoodreadsShelvesSection />
+
+        {/* Watched Series */}
+        <WatchedSeriesSection />
+
+        {/* Watched Authors */}
+        <WatchedAuthorsSection />
 
         {/* Active Downloads */}
         {activeDownloads.length > 0 && (
