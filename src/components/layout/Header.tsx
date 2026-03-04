@@ -12,7 +12,6 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/Button';
 import { VersionBadge } from '@/components/ui/VersionBadge';
 import { ChangePasswordModal } from '@/components/ui/ChangePasswordModal';
-import { AddShelfModal } from '@/components/ui/AddShelfModal';
 import { useSmartDropdownPosition } from '@/hooks/useSmartDropdownPosition';
 
 export function Header() {
@@ -21,7 +20,6 @@ export function Header() {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showBookDate, setShowBookDate] = useState(false);
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
-  const [showAddShelfModal, setShowAddShelfModal] = useState(false);
   const { containerRef, dropdownRef, positionAbove, style } =
     useSmartDropdownPosition(showUserMenu);
 
@@ -91,15 +89,6 @@ export function Header() {
       >
         Profile
       </Link>
-      <button
-        onClick={() => {
-          setShowUserMenu(false);
-          setShowAddShelfModal(true);
-        }}
-        className="w-full text-left px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-      >
-        Add Shelf
-      </button>
       {canChangePassword && (
         <button
           onClick={() => {
@@ -364,12 +353,6 @@ export function Header() {
       <ChangePasswordModal
         isOpen={showChangePasswordModal}
         onClose={() => setShowChangePasswordModal(false)}
-      />
-
-      {/* Add Shelf Modal */}
-      <AddShelfModal
-        isOpen={showAddShelfModal}
-        onClose={() => setShowAddShelfModal(false)}
       />
     </header>
   );
