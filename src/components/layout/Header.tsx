@@ -12,7 +12,6 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/Button';
 import { VersionBadge } from '@/components/ui/VersionBadge';
 import { ChangePasswordModal } from '@/components/ui/ChangePasswordModal';
-import { AddGoodreadsShelfModal } from '@/components/ui/AddGoodreadsShelfModal';
 import { useSmartDropdownPosition } from '@/hooks/useSmartDropdownPosition';
 
 export function Header() {
@@ -21,8 +20,8 @@ export function Header() {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showBookDate, setShowBookDate] = useState(false);
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
-  const [showAddGoodreadsModal, setShowAddGoodreadsModal] = useState(false);
-  const { containerRef, dropdownRef, positionAbove, style } = useSmartDropdownPosition(showUserMenu);
+  const { containerRef, dropdownRef, positionAbove, style } =
+    useSmartDropdownPosition(showUserMenu);
 
   // Check if user can change password (local users only)
   const canChangePassword = user?.authProvider === 'local';
@@ -44,16 +43,14 @@ export function Header() {
 
         const response = await fetch('/api/bookdate/config', {
           headers: {
-            'Authorization': `Bearer ${accessToken}`,
+            Authorization: `Bearer ${accessToken}`,
           },
         });
 
         const data = await response.json();
         // Show BookDate to any user with verified and enabled configuration
         setShowBookDate(
-          data.config &&
-          data.config.isVerified &&
-          data.config.isEnabled
+          data.config && data.config.isVerified && data.config.isEnabled,
         );
       } catch (error) {
         console.error('Failed to check BookDate config:', error);
@@ -92,15 +89,6 @@ export function Header() {
       >
         Profile
       </Link>
-      <button
-        onClick={() => {
-          setShowUserMenu(false);
-          setShowAddGoodreadsModal(true);
-        }}
-        className="w-full text-left px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-      >
-        Add Goodreads Shelf
-      </button>
       {canChangePassword && (
         <button
           onClick={() => {
@@ -206,8 +194,18 @@ export function Header() {
               className="md:hidden p-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
               aria-label="Search"
             >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
               </svg>
             </Link>
 
@@ -218,12 +216,32 @@ export function Header() {
               aria-label="Toggle menu"
             >
               {showMobileMenu ? (
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
                 </svg>
               ) : (
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 6h16M4 12h16M4 18h16"
+                  />
                 </svg>
               )}
             </button>
@@ -327,18 +345,14 @@ export function Header() {
       </div>
 
       {/* User menu dropdown (rendered via portal) */}
-      {typeof window !== 'undefined' && userMenuDropdown && createPortal(userMenuDropdown, document.body)}
+      {typeof window !== 'undefined' &&
+        userMenuDropdown &&
+        createPortal(userMenuDropdown, document.body)}
 
       {/* Change Password Modal */}
       <ChangePasswordModal
         isOpen={showChangePasswordModal}
         onClose={() => setShowChangePasswordModal(false)}
-      />
-
-      {/* Add Goodreads Shelf Modal */}
-      <AddGoodreadsShelfModal
-        isOpen={showAddGoodreadsModal}
-        onClose={() => setShowAddGoodreadsModal(false)}
       />
     </header>
   );

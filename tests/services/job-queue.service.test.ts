@@ -21,7 +21,7 @@ const processorsMock = vi.hoisted(() => ({
   processRetryMissingTorrents: vi.fn().mockResolvedValue('ok'),
   processRetryFailedImports: vi.fn().mockResolvedValue('ok'),
   processCleanupSeededTorrents: vi.fn().mockResolvedValue('ok'),
-  processSyncGoodreadsShelves: vi.fn().mockResolvedValue('ok'),
+  processSyncShelves: vi.fn().mockResolvedValue('ok'),
   processCheckWatchedLists: vi.fn().mockResolvedValue('ok'),
   // Ebook processors
   processSearchEbook: vi.fn().mockResolvedValue('ok'),
@@ -117,8 +117,8 @@ vi.mock('@/lib/processors/cleanup-seeded-torrents.processor', () => ({
   processCleanupSeededTorrents: processorsMock.processCleanupSeededTorrents,
 }));
 
-vi.mock('@/lib/processors/sync-goodreads-shelves.processor', () => ({
-  processSyncGoodreadsShelves: processorsMock.processSyncGoodreadsShelves,
+vi.mock('@/lib/processors/sync-shelves.processor', () => ({
+  processSyncShelves: processorsMock.processSyncShelves,
 }));
 
 vi.mock('@/lib/processors/check-watched-lists.processor', () => ({
@@ -569,7 +569,7 @@ describe('JobQueueService', () => {
     expect(processorsMock.processRetryMissingTorrents).toHaveBeenCalled();
     expect(processorsMock.processRetryFailedImports).toHaveBeenCalled();
     expect(processorsMock.processCleanupSeededTorrents).toHaveBeenCalled();
-    expect(processorsMock.processSyncGoodreadsShelves).toHaveBeenCalled();
+    expect(processorsMock.processSyncShelves).toHaveBeenCalled();
     expect(processorsMock.processCheckWatchedLists).toHaveBeenCalled();
   });
 

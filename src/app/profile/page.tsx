@@ -11,7 +11,7 @@ import { RequestCard } from '@/components/requests/RequestCard';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRequests } from '@/lib/hooks/useRequests';
 import { cn } from '@/lib/utils/cn';
-import { GoodreadsShelvesSection } from '@/components/profile/GoodreadsShelvesSection';
+import { ShelvesSection } from '@/components/profile/ShelvesSection';
 import { ApiTokensSection } from '@/components/profile/ApiTokensSection';
 import { WatchedSeriesSection, WatchedAuthorsSection } from '@/components/profile/WatchedListsSection';
 
@@ -141,8 +141,8 @@ export default function ProfilePage() {
           </div>
         </section>
 
-        {/* Goodreads Shelves */}
-        <GoodreadsShelvesSection />
+        {/* Generic Shelves Section */}
+        <ShelvesSection />
 
         {/* Watched Series */}
         <WatchedSeriesSection />
