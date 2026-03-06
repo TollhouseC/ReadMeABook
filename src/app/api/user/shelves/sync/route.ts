@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, AuthenticatedRequest } from '@/lib/middleware/auth';
+import { prisma } from '@/lib/db';
 import { getJobQueueService } from '@/lib/services/job-queue.service';
 import { RMABLogger } from '@/lib/utils/logger';
 import { z } from 'zod';
@@ -29,6 +30,21 @@ export async function POST(request: NextRequest) {
 
       const body = await request.json().catch(() => ({}));
       const { shelfId, shelfType } = SyncSchema.parse(body);
+
+      // Set lastSyncAt to null so the frontend SWR refresh catches the "Syncing..." state immediately
+      if (!shelfType || shelfType === 'goodreads') {
+        await prisma.goodreadsShelf.updateMany({
+          where: { userId: req.user.id, ...(shelfId ? { id: shelfId } : {}) },
+          data: { lastSyncAt: null },
+        });
+      }
+
+      if (!shelfType || shelfType === 'hardcover') {
+        await prisma.hardcoverShelf.updateMany({
+          where: { userId: req.user.id, ...(shelfId ? { id: shelfId } : {}) },
+          data: { lastSyncAt: null },
+        });
+      }
 
       const jobQueue = getJobQueueService();
 

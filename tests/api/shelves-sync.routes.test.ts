@@ -4,16 +4,22 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createPrismaMock } from '../helpers/prisma';
 
 let authRequest: any;
 
 const requireAuthMock = vi.hoisted(() => vi.fn());
+const prismaMock = createPrismaMock();
 const jobQueueMock = vi.hoisted(() => ({
   addSyncShelvesJob: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('@/lib/middleware/auth', () => ({
   requireAuth: requireAuthMock,
+}));
+
+vi.mock('@/lib/db', () => ({
+  prisma: prismaMock,
 }));
 
 vi.mock('@/lib/services/job-queue.service', () => ({
@@ -36,6 +42,17 @@ describe('POST /api/user/shelves/sync', () => {
 
     expect(response.status).toBe(200);
     expect(payload.success).toBe(true);
+
+    // Both tables should have updateMany called to clear lastSyncAt
+    expect(prismaMock.goodreadsShelf.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1' },
+      data: { lastSyncAt: null },
+    });
+    expect(prismaMock.hardcoverShelf.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1' },
+      data: { lastSyncAt: null },
+    });
+
     expect(jobQueueMock.addSyncShelvesJob).toHaveBeenCalledWith(
       undefined, // scheduledJobId
       undefined, // shelfId
@@ -54,6 +71,14 @@ describe('POST /api/user/shelves/sync', () => {
 
     expect(response.status).toBe(200);
     expect(payload.success).toBe(true);
+
+    // Only goodreads should be updated since shelfType is specified
+    expect(prismaMock.goodreadsShelf.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1', id: 'shelf-123' },
+      data: { lastSyncAt: null },
+    });
+    expect(prismaMock.hardcoverShelf.updateMany).not.toHaveBeenCalled();
+
     expect(jobQueueMock.addSyncShelvesJob).toHaveBeenCalledWith(
       undefined, // scheduledJobId
       'shelf-123', // shelfId
