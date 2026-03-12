@@ -365,7 +365,7 @@ function AdminUsersPageContent() {
     }
   };
 
-  const handleToggleToken = async (user: User, newValue: boolean) => {
+  const handleToggleToken = async (user: { id: string; plexUsername: string }, newValue: boolean) => {
     try {
       if (newValue) {
         const result = await fetchJSON(`/api/admin/users/${user.id}/login-token`, { method: 'POST' });
@@ -1007,7 +1007,7 @@ function AdminUsersPageContent() {
             handleUserDownloadAccessToggle(user as User, newValue);
           }}
           onToggleToken={(user, newValue) => {
-            handleToggleToken(user as unknown as User, newValue);
+            handleToggleToken(user, newValue);
           }}
         />
       </div>
