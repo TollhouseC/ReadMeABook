@@ -6,6 +6,7 @@
 'use client';
 
 import { Modal } from '@/components/ui/Modal';
+import { useToast } from '@/components/ui/Toast';
 
 interface UserPermissionsUser {
   id: string;
@@ -93,6 +94,7 @@ interface LoginTokenRowProps {
 }
 
 function LoginTokenRow({ value, generatedToken, onToggle }: LoginTokenRowProps) {
+  const toast = useToast();
   const loginUrl = generatedToken
       ? `${typeof window !== 'undefined' ? window.location.origin : ''}/auth/token/login?token=${generatedToken}`
       : null;
@@ -102,7 +104,7 @@ function LoginTokenRow({ value, generatedToken, onToggle }: LoginTokenRowProps) 
     try {
       await navigator.clipboard.writeText(loginUrl);
     } catch {
-      // ignore
+      toast.error('Failed to copy to clipboard');
     }
   };
 
