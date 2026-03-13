@@ -79,7 +79,7 @@ export async function DELETE(
 
         await prisma.user.update({
           where: { id },
-          data: { loginTokenHash: null },
+          data: { loginTokenHash: null, sessionsInvalidatedAt: new Date() },
         });
 
         logger.info('Admin revoked login token for user', {

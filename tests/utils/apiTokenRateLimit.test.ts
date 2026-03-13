@@ -9,7 +9,7 @@ import {
   checkApiTokenRevokeRateLimit,
   _resetBuckets,
   _getBucketCount,
-} from '@/lib/utils/apiTokenRateLimit';
+} from '@/lib/utils/rateLimit';
 import { MAX_TOKENS_PER_USER } from '@/lib/constants/api-tokens';
 
 describe('API Token Rate Limiting', () => {

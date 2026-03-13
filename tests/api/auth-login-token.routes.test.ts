@@ -20,7 +20,7 @@ vi.mock('@/lib/utils/jwt', () => ({
   generateRefreshToken: generateRefreshTokenMock,
 }));
 
-vi.mock('@/lib/utils/authRateLimit', () => ({
+vi.mock('@/lib/utils/rateLimit', () => ({
   checkTokenLoginRateLimit: checkTokenLoginRateLimitMock,
 }));
 

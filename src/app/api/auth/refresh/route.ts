@@ -45,13 +45,34 @@ export async function POST(request: NextRequest) {
     // Get user from database
     const user = await prisma.user.findUnique({
       where: { id: payload.sub },
+      select: {
+        id: true,
+        plexId: true,
+        plexUsername: true,
+        role: true,
+        deletedAt: true,
+        sessionsInvalidatedAt: true,
+      },
     });
 
-    if (!user) {
+    if (!user || user.deletedAt) {
       return NextResponse.json(
         {
           error: 'Unauthorized',
           message: 'User not found',
+        },
+        { status: 401 }
+      );
+    }
+
+    // Check if session was invalidated after this refresh token was issued
+    if (user.sessionsInvalidatedAt && payload.iat &&
+        payload.iat < Math.floor(user.sessionsInvalidatedAt.getTime() / 1000)) {
+      logger.warn('Refresh token issued before session invalidation', { userId: payload.sub });
+      return NextResponse.json(
+        {
+          error: 'Unauthorized',
+          message: 'Session has been revoked',
         },
         { status: 401 }
       );

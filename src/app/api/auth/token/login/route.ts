@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { generateAccessToken, generateRefreshToken } from '@/lib/utils/jwt';
 import { RMABLogger } from '@/lib/utils/logger';
-import { checkTokenLoginRateLimit } from '@/lib/utils/authRateLimit';
+import { checkTokenLoginRateLimit } from '@/lib/utils/rateLimit';
 import crypto from 'crypto';
 
 const logger = RMABLogger.create('API.Auth.TokenLogin');

@@ -22,6 +22,9 @@ function TokenLoginContent() {
       return;
     }
 
+    // Scrub token from browser URL/history immediately after extraction
+    window.history.replaceState({}, '', '/auth/token/login');
+
     fetch('/api/auth/token/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

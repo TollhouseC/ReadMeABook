@@ -20,11 +20,13 @@ export interface TokenPayload {
   plexId: string;
   username: string;
   role: string;
+  iat?: number; // Issued-at (auto-set by jsonwebtoken)
 }
 
 export interface RefreshTokenPayload {
   sub: string;
   type: 'refresh';
+  iat?: number; // Issued-at (auto-set by jsonwebtoken)
 }
 
 /**

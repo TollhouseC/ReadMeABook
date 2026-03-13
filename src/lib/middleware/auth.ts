@@ -172,6 +172,7 @@ export async function requireAuth(
     select: {
       id: true,
       deletedAt: true,
+      sessionsInvalidatedAt: true,
     },
   });
 
@@ -181,6 +182,19 @@ export async function requireAuth(
       {
         error: 'Unauthorized',
         message: 'User not found',
+      },
+      { status: 401 }
+    );
+  }
+
+  // Check if session was invalidated after this token was issued
+  if (user.sessionsInvalidatedAt && payload.iat &&
+      payload.iat < Math.floor(user.sessionsInvalidatedAt.getTime() / 1000)) {
+    logger.warn('Token issued before session invalidation', { userId: payload.sub });
+    return NextResponse.json(
+      {
+        error: 'Unauthorized',
+        message: 'Session has been revoked',
       },
       { status: 401 }
     );

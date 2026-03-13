@@ -29,7 +29,7 @@ vi.mock('@/lib/middleware/auth', () => ({
   requireAdmin: requireAdminMock,
 }));
 
-vi.mock('@/lib/utils/apiTokenRateLimit', () => ({
+vi.mock('@/lib/utils/rateLimit', () => ({
   checkApiTokenCreateRateLimit: checkApiTokenCreateRateLimitMock,
 }));
 

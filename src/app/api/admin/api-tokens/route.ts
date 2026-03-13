@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, requireAdmin, AuthenticatedRequest } from '@/lib/middleware/auth';
 import { prisma } from '@/lib/db';
 import { RMABLogger } from '@/lib/utils/logger';
-import { checkApiTokenCreateRateLimit } from '@/lib/utils/apiTokenRateLimit';
+import { checkApiTokenCreateRateLimit } from '@/lib/utils/rateLimit';
 import { MAX_TOKENS_PER_USER } from '@/lib/constants/api-tokens';
 import { generateApiToken } from '@/lib/utils/api-token';
 import { z } from 'zod';

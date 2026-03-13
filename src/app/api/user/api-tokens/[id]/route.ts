@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, AuthenticatedRequest } from '@/lib/middleware/auth';
 import { prisma } from '@/lib/db';
 import { RMABLogger } from '@/lib/utils/logger';
-import { checkApiTokenRevokeRateLimit } from '@/lib/utils/apiTokenRateLimit';
+import { checkApiTokenRevokeRateLimit } from '@/lib/utils/rateLimit';
 
 const logger = RMABLogger.create('API.User.ApiTokens');
 

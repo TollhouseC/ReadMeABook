@@ -1,5 +1,5 @@
 /**
- * Component: Auth Rate Limiting
+ * Component: Rate Limiting
  * Documentation: documentation/backend/services/auth.md
  *
  * In-memory fixed-window rate limiter with lazy eviction and periodic sweep
@@ -11,7 +11,7 @@ type Bucket = {
   resetAt: number;
 };
 
-type RateLimitResult = {
+export type RateLimitResult = {
   allowed: boolean;
   retryAfterSeconds: number;
 };
@@ -37,7 +37,7 @@ function sweepExpiredBuckets(): void {
   }
 }
 
-function checkRateLimit(key: string, maxRequests: number, windowMs: number): RateLimitResult {
+export function checkRateLimit(key: string, maxRequests: number, windowMs: number): RateLimitResult {
   const now = Date.now();
 
   // Periodic full sweep every SWEEP_INTERVAL calls
@@ -70,6 +70,16 @@ function checkRateLimit(key: string, maxRequests: number, windowMs: number): Rat
     allowed: true,
     retryAfterSeconds: Math.max(1, Math.ceil((current.resetAt - now) / 1000)),
   };
+}
+
+/** 10 attempts per minute per actor */
+export function checkApiTokenCreateRateLimit(actorId: string): RateLimitResult {
+  return checkRateLimit(`api-token-create:${actorId}`, 10, 60 * 1000);
+}
+
+/** 20 attempts per minute per actor */
+export function checkApiTokenRevokeRateLimit(actorId: string): RateLimitResult {
+  return checkRateLimit(`api-token-revoke:${actorId}`, 20, 60 * 1000);
 }
 
 /** 10 attempts per 15 minutes per IP */
