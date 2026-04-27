@@ -121,11 +121,11 @@ export function Header() {
             <Link href="/" className="flex items-center gap-2 min-w-0">
               <img
                 src="/RMAB_1024x1024_ICON.png"
-                alt="ReadMeABook Logo"
+                alt="BookRequest Logo"
                 className="w-8 h-8 flex-shrink-0"
               />
               <span className="text-lg md:text-xl font-bold text-gray-900 dark:text-gray-100 truncate">
-                ReadMeABook
+                BookRequest
               </span>
             </Link>
             {/* Hide version badge on mobile to prevent overlap */}

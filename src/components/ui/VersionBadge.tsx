@@ -7,7 +7,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 
-const GITHUB_REPO = 'kikootwo/ReadMeABook';
+const GITHUB_REPO = 'TollhouseC/ReadMeABook';
 const REMOTE_PACKAGE_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/refs/heads/main/package.json`;
 const UPDATE_CHECK_INTERVAL = 6 * 60 * 60 * 1000; // 6 hours
 
