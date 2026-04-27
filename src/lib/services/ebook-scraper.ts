@@ -21,10 +21,10 @@ export interface EbookDownloadResult {
 
 const USER_AGENT = 'ReadMeABook/1.0 (Audiobook Automation)';
 const REQUEST_DELAY_MS = 1500; // 1.5 second delay between requests
-const DOWNLOAD_TIMEOUT_MS = 60000; // 60 seconds per download attempt
+const DOWNLOAD_TIMEOUT_MS = 180000; // 180 seconds per download attempt
 const MAX_SLOW_LINK_ATTEMPTS = 5;
 const MAX_RETRIES = 3;
-const FLARESOLVERR_TIMEOUT_MS = 60000; // 60 seconds for FlareSolverr requests
+const FLARESOLVERR_TIMEOUT_MS = 180000; // 180 seconds for FlareSolverr requests
 
 // In-memory cache for MD5 lookups (prevents re-scraping same ASIN)
 const md5Cache = new Map<string, string | null>();
