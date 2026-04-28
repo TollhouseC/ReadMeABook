@@ -514,7 +514,7 @@ function LoginContent() {
             {/* Logo/Title */}
             <div className="text-center mb-6 sm:mb-8">
               <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-white mb-2 sm:mb-3">
-                ReadMeABook
+                BookRequest
               </h1>
               <p className="text-gray-300 text-base sm:text-lg">
                 Your Personal Audiobook Library Manager
