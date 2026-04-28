@@ -839,7 +839,8 @@ export class JobQueueService {
   async addSearchEbookJob(
     requestId: string,
     audiobook: { id: string; title: string; author: string; asin?: string },
-    preferredFormat?: string
+    preferredFormat?: string,
+    delayMs?: number
   ): Promise<string> {
     return await this.addJob(
       'search_ebook',
@@ -849,7 +850,8 @@ export class JobQueueService {
         preferredFormat,
       } as SearchEbookPayload,
       {
-        priority: 10, // High priority for user-initiated requests
+        priority: 10,
+        ...(delayMs ? { delay: delayMs } : {}),
       }
     );
   }

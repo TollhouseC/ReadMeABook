@@ -44,7 +44,7 @@ export async function processSearchEbook(payload: SearchEbookPayload): Promise<a
         searchAttempts: { increment: 1 },
         updatedAt: new Date(),
       },
-      select: { customSearchTerms: true },
+      select: { customSearchTerms: true, searchAttempts: true },
     });
 
     // Use custom search terms if set, otherwise use audiobook title
@@ -94,16 +94,38 @@ export async function processSearchEbook(payload: SearchEbookPayload): Promise<a
 
     // ========== STEP 3: Handle Results ==========
     if (!annasArchiveResult && !indexerResult) {
-      // No results found from any source
       const enabledSources = [];
       if (annasArchiveEnabled) enabledSources.push("Anna's Archive");
       if (indexerSearchEnabled) enabledSources.push("Indexer Search");
 
-      const message = enabledSources.length > 0
-        ? `No ebook found on ${enabledSources.join(' or ')}. Will retry automatically.`
-        : 'No ebook sources enabled. Enable Anna\'s Archive or Indexer Search in settings.';
+      const MAX_SEARCH_ATTEMPTS = 5;
+      const attempts = requestRecord?.searchAttempts ?? 1;
 
-      logger.warn(`No ebook found for request ${requestId}, marking as awaiting_search`);
+      if (attempts >= MAX_SEARCH_ATTEMPTS || enabledSources.length === 0) {
+        const message = enabledSources.length === 0
+          ? 'No ebook sources enabled. Enable Anna\'s Archive or Indexer Search in settings.'
+          : `No ebook found after ${attempts} attempts. Giving up.`;
+
+        logger.warn(`No ebook found for request ${requestId} after ${attempts} attempt(s), marking as failed`);
+
+        await prisma.request.update({
+          where: { id: requestId },
+          data: {
+            status: 'failed',
+            errorMessage: message,
+            lastSearchAt: new Date(),
+            updatedAt: new Date(),
+          },
+        });
+
+        return { success: false, message, requestId };
+      }
+
+      // Schedule a retry in 2 hours rather than waiting for the daily scheduler
+      const RETRY_DELAY_MS = 2 * 60 * 60 * 1000;
+      const message = `No ebook found on ${enabledSources.join(' or ')} (attempt ${attempts}/${MAX_SEARCH_ATTEMPTS}). Retrying in 2 hours.`;
+
+      logger.warn(`No ebook found for request ${requestId} (attempt ${attempts}), scheduling retry in 2 hours`);
 
       await prisma.request.update({
         where: { id: requestId },
@@ -115,11 +137,15 @@ export async function processSearchEbook(payload: SearchEbookPayload): Promise<a
         },
       });
 
-      return {
-        success: false,
-        message: 'No ebook found, queued for re-search',
+      const jobQueue = getJobQueueService();
+      await jobQueue.addSearchEbookJob(
         requestId,
-      };
+        audiobook,
+        payloadFormat,
+        RETRY_DELAY_MS
+      );
+
+      return { success: false, message, requestId };
     }
 
     // ========== STEP 4: Route to Appropriate Download ==========
