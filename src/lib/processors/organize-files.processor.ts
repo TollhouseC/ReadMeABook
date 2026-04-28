@@ -868,62 +868,8 @@ async function createEbookRequestIfEnabled(
   targetPath: string,
   logger: RMABLogger
 ): Promise<void> {
-  try {
-    // Auto ebook request creation is disabled — users request ebooks manually from the library.
-    logger.info('Ebook auto-grab disabled, skipping automatic ebook request creation');
-    return;
-
-    // Check which ebook sources are enabled
-    const annasArchiveEnabled = await configService.get('ebook_annas_archive_enabled');
-    const indexerSearchEnabled = await configService.get('ebook_indexer_search_enabled');
-
-    // Legacy migration: check old key if new keys don't exist
-    const legacyEnabled = await configService.get('ebook_sidecar_enabled');
-    const isAnnasArchiveEnabled = annasArchiveEnabled === 'true' ||
-      (annasArchiveEnabled === null && legacyEnabled === 'true');
-    const isIndexerSearchEnabled = indexerSearchEnabled === 'true';
-
-    // If no sources are enabled, skip ebook creation
-    if (!isAnnasArchiveEnabled && !isIndexerSearchEnabled) {
-      logger.info('Ebook downloads disabled (no sources enabled), skipping ebook request creation');
-      return;
-    }
-
-    // At least one source is enabled - proceed with ebook request creation
-
-    // Check if an ebook request already exists for this parent
-    const existingEbookRequest = await prisma.request.findFirst({
-      where: {
-        parentRequestId,
-        type: 'ebook',
-        deletedAt: null,
-      },
-    });
-
-    if (existingEbookRequest) {
-      logger.info(`Ebook request already exists for parent ${parentRequestId}: ${existingEbookRequest.id}`);
-      return;
-    }
-
-    logger.info(`Creating ebook request for "${audiobook.title}" (parent: ${parentRequestId})`);
-
-    // Create new ebook request (auto-approved since parent was approved)
-    const ebookRequest = await prisma.request.create({
-      data: {
-        userId,
-        audiobookId: audiobook.id,
-        type: 'ebook',
-        parentRequestId,
-        status: 'pending', // Will trigger search_ebook job
-        progress: 0,
-      },
-    });
-
-    logger.info(`Created ebook request ${ebookRequest.id} — awaiting manual search`);
-  } catch (error) {
-    // Don't fail the main audiobook organization if ebook request creation fails
-    logger.error(`Failed to create ebook request: ${error instanceof Error ? error.message : 'Unknown error'}`);
-  }
+  // Auto ebook request creation is disabled — users request ebooks manually from the library.
+  logger.info('Ebook auto-grab disabled, skipping automatic ebook request creation');
 }
 
 // =========================================================================
