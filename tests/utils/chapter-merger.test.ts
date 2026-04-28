@@ -91,6 +91,14 @@ describe('chapter merger', () => {
     await expect(detectChapterFiles(['one.mp3', 'two.mp3', 'three.mp3'])).resolves.toBe(true);
   });
 
+  it('detects eligible .m4a chapter files', async () => {
+    await expect(detectChapterFiles(['one.m4a', 'two.m4a', 'three.m4a'])).resolves.toBe(true);
+  });
+
+  it('rejects mixed .mp3 and .m4a files (different types = different books)', async () => {
+    await expect(detectChapterFiles(['one.mp3', 'two.m4a', 'three.mp3'])).resolves.toBe(false);
+  });
+
   it('orders chapters by metadata when track numbers are sequential', async () => {
     const files = ['/tmp/b.mp3', '/tmp/a.mp3', '/tmp/c.mp3'];
     const probeMap: Record<string, { duration: number; bitrate: number; track: number }> = {
@@ -318,6 +326,55 @@ describe('chapter merger', () => {
     expect(result.chapterCount).toBe(2);
     expect(result.totalDuration).toBe(120000);
     expect(spawnMock).toHaveBeenCalled();
+  });
+
+  it('merges .m4a chapters via re-encode path (not codec copy)', async () => {
+    const outputPath = '/tmp/output.m4b';
+    const chapters = [
+      { path: '/tmp/one.m4a', filename: 'one.m4a', duration: 60000, bitrate: 128, chapterTitle: 'One' },
+      { path: '/tmp/two.m4a', filename: 'two.m4a', duration: 60000, bitrate: 128, chapterTitle: 'Two' },
+    ];
+
+    fsMock.access.mockResolvedValue(undefined);
+    fsMock.mkdir.mockResolvedValue(undefined);
+    fsMock.writeFile.mockResolvedValue(undefined);
+    fsMock.unlink.mockResolvedValue(undefined);
+    fsMock.stat.mockImplementation(async (filePath: string) => {
+      if (filePath === outputPath) return { size: 2 * 1024 * 1024 };
+      return { size: 500 * 1024 };
+    });
+
+    let encoderCheckCalled = false;
+    mockExecImplementation((command) => {
+      if (command.startsWith('ffmpeg -encoders')) {
+        encoderCheckCalled = true;
+        return { stdout: 'aac encoder' };
+      }
+      if (command.startsWith('ffprobe')) {
+        return {
+          stdout: JSON.stringify({
+            format: { duration: '120', bit_rate: '128000', tags: {} },
+          }),
+        };
+      }
+      if (command.startsWith('ffmpeg -v error')) {
+        return { stdout: '' };
+      }
+      return { error: new Error(`Unexpected command: ${command}`) };
+    });
+
+    spawnMock.mockReturnValue(createSpawnProcess(0));
+
+    const result = await mergeChapters(chapters, {
+      title: 'Book',
+      author: 'Author',
+      outputPath,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.chapterCount).toBe(2);
+    // Re-encode path must be taken for .m4a (encoder check only happens on re-encode path)
+    expect(encoderCheckCalled).toBe(true);
   });
 
   it('parses probe metadata including track numbers', async () => {

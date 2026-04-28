@@ -633,7 +633,7 @@ export async function mergeChapters(
 
     // Determine if we need to re-encode (non-AAC input requires conversion to AAC for M4B)
     const inputFormat = path.extname(chapters[0].path).toLowerCase();
-    const needsReencode = inputFormat === '.mp3' || inputFormat === '.flac' || inputFormat === '.aac';
+    const needsReencode = inputFormat === '.mp3' || inputFormat === '.m4a' || inputFormat === '.flac' || inputFormat === '.aac';
 
     // Build ffmpeg command
     const args: string[] = [
