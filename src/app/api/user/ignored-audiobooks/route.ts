@@ -2,8 +2,8 @@
  * Component: Ignored Audiobooks API Routes
  * Documentation: documentation/features/ignored-audiobooks.md
  *
- * Per-user ignore list for auto-request suppression.
- * GET returns the user's full ignore list; POST adds a new entry.
+ * Server-wide ignore list for auto-request suppression.
+ * GET returns the full global ignore list; POST adds a new entry.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -23,7 +23,7 @@ const AddIgnoredSchema = z.object({
 
 /**
  * GET /api/user/ignored-audiobooks
- * List the current user's ignored audiobooks
+ * List all globally ignored audiobooks
  */
 export async function GET(request: NextRequest) {
   return requireAuth(request, async (req: AuthenticatedRequest) => {
@@ -33,7 +33,6 @@ export async function GET(request: NextRequest) {
       }
 
       const ignored = await prisma.ignoredAudiobook.findMany({
-        where: { userId: req.user.id },
         orderBy: { createdAt: 'desc' },
       });
 
@@ -62,7 +61,7 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/user/ignored-audiobooks
- * Add an audiobook to the user's ignore list
+ * Add an audiobook to the global ignore list
  */
 export async function POST(request: NextRequest) {
   return requireAuth(request, async (req: AuthenticatedRequest) => {
@@ -74,14 +73,10 @@ export async function POST(request: NextRequest) {
       const body = await req.json();
       const data = AddIgnoredSchema.parse(body);
 
-      // Upsert to handle duplicate gracefully
       const ignored = await prisma.ignoredAudiobook.upsert({
-        where: {
-          userId_asin: { userId: req.user.id, asin: data.asin },
-        },
-        update: {}, // Already exists — no-op
+        where: { asin: data.asin },
+        update: {},
         create: {
-          userId: req.user.id,
           asin: data.asin,
           title: data.title,
           author: data.author,
@@ -89,7 +84,7 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      logger.info(`User ${req.user.id} ignored ASIN ${data.asin} ("${data.title}")`);
+      logger.info(`User ${req.user.id} added ASIN ${data.asin} ("${data.title}") to global ignore list`);
 
       return NextResponse.json({
         success: true,

@@ -2,29 +2,25 @@
  * Component: Ignored Audiobooks Utility
  * Documentation: documentation/features/ignored-audiobooks.md
  *
- * Shared utility for annotating audiobook lists with per-user ignore status.
- * Uses a single bulk query for the user's full ignore list, then annotates in-memory.
+ * Shared utility for annotating audiobook lists with global ignore status.
+ * Uses a single bulk query for the full ignore list, then annotates in-memory.
  */
 
 import { prisma } from '@/lib/db';
 
 /**
  * Annotate an array of audiobook objects with `isIgnored: boolean`.
- * Fetches the user's full ignore list in one query and matches by ASIN.
- *
- * If userId is undefined (unauthenticated), all books get `isIgnored: false`.
+ * Checks the server-wide ignore list — userId param retained for API compatibility.
  */
 export async function annotateWithIgnoreStatus<T extends { asin: string }>(
   audiobooks: T[],
-  userId?: string
+  _userId?: string
 ): Promise<(T & { isIgnored: boolean })[]> {
-  if (!userId || audiobooks.length === 0) {
+  if (audiobooks.length === 0) {
     return audiobooks.map((book) => ({ ...book, isIgnored: false }));
   }
 
-  // Single query: get all ASINs this user has ignored
   const ignoredEntries = await prisma.ignoredAudiobook.findMany({
-    where: { userId },
     select: { asin: true },
   });
 

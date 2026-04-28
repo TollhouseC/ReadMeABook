@@ -83,14 +83,14 @@ export async function createRequestForUser(
     };
   }
 
-  // Check per-user ignore list (skipped for manual requests via bypassIgnore)
+  // Check global ignore list (skipped for manual requests via bypassIgnore)
   if (!bypassIgnore) {
-    const isIgnored = await checkIgnoreList(userId, audiobook.asin);
+    const isIgnored = await checkIgnoreList(audiobook.asin);
     if (isIgnored) {
       return {
         success: false,
         reason: 'ignored',
-        message: 'This audiobook is on your ignore list',
+        message: 'This audiobook is on the ignore list',
       };
     }
   }
@@ -296,12 +296,11 @@ export async function createRequestForUser(
 
 /**
  * Check if an ASIN (or any of its sibling ASINs via the works table)
- * is on the user's ignore list. Returns true if the book should be blocked.
+ * is on the global ignore list. Returns true if the book should be blocked.
  */
-async function checkIgnoreList(userId: string, asin: string): Promise<boolean> {
-  // Direct check: is this exact ASIN ignored?
+async function checkIgnoreList(asin: string): Promise<boolean> {
   const directIgnore = await prisma.ignoredAudiobook.findUnique({
-    where: { userId_asin: { userId, asin } },
+    where: { asin },
   });
   if (directIgnore) return true;
 
@@ -311,10 +310,7 @@ async function checkIgnoreList(userId: string, asin: string): Promise<boolean> {
     const siblings = siblingMap.get(asin);
     if (siblings && siblings.length > 0) {
       const siblingIgnore = await prisma.ignoredAudiobook.findFirst({
-        where: {
-          userId,
-          asin: { in: siblings },
-        },
+        where: { asin: { in: siblings } },
       });
       if (siblingIgnore) return true;
     }

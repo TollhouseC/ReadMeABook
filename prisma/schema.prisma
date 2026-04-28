@@ -80,7 +80,6 @@ model User {
   watchedSeries           WatchedSeries[]
   watchedAuthors          WatchedAuthor[]
   homeSections            UserHomeSection[]
-  ignoredAudiobooks       IgnoredAudiobook[]
 
   @@index([plexId])
   @@index([role])
@@ -692,19 +691,12 @@ model WatchedAuthor {
 
 model IgnoredAudiobook {
   id          String   @id @default(uuid())
-  userId      String   @map("user_id")
-  asin        String   // Audible ASIN that was explicitly ignored
+  asin        String   @unique // Audible ASIN that was explicitly ignored
   title       String   // Display only — snapshot at ignore time
   author      String   // Display only — snapshot at ignore time
   coverArtUrl String?  @map("cover_art_url") @db.Text
   createdAt   DateTime @default(now()) @map("created_at")
 
-  // Relations
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, asin])
-  @@index([userId])
-  @@index([asin])
   @@map("ignored_audiobooks")
 }
 

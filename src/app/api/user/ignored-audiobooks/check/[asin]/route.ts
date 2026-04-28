@@ -2,7 +2,7 @@
  * Component: Ignored Audiobook Check Route
  * Documentation: documentation/features/ignored-audiobooks.md
  *
- * Quick check whether a specific ASIN is ignored by the current user.
+ * Quick check whether a specific ASIN is in the global ignore list.
  * Includes works-system expansion to catch sibling ASINs.
  */
 
@@ -17,7 +17,6 @@ const logger = RMABLogger.create('API.IgnoredAudiobooks.Check');
 /**
  * GET /api/user/ignored-audiobooks/check/[asin]
  * Returns { ignored: boolean, ignoredId?: string } for the given ASIN.
- * ignoredId is the ID of the matching IgnoredAudiobook record (for un-ignore).
  */
 export async function GET(
   request: NextRequest,
@@ -33,14 +32,11 @@ export async function GET(
 
       // Direct check
       const directIgnore = await prisma.ignoredAudiobook.findUnique({
-        where: { userId_asin: { userId: req.user.id, asin } },
+        where: { asin },
       });
 
       if (directIgnore) {
-        return NextResponse.json({
-          ignored: true,
-          ignoredId: directIgnore.id,
-        });
+        return NextResponse.json({ ignored: true, ignoredId: directIgnore.id });
       }
 
       // Works-system expansion: check sibling ASINs
@@ -49,16 +45,10 @@ export async function GET(
         const siblings = siblingMap.get(asin);
         if (siblings && siblings.length > 0) {
           const siblingIgnore = await prisma.ignoredAudiobook.findFirst({
-            where: {
-              userId: req.user.id,
-              asin: { in: siblings },
-            },
+            where: { asin: { in: siblings } },
           });
           if (siblingIgnore) {
-            return NextResponse.json({
-              ignored: true,
-              ignoredId: siblingIgnore.id,
-            });
+            return NextResponse.json({ ignored: true, ignoredId: siblingIgnore.id });
           }
         }
       } catch {

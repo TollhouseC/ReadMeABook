@@ -2,7 +2,8 @@
  * Component: Ignored Audiobook Delete Route
  * Documentation: documentation/features/ignored-audiobooks.md
  *
- * DELETE removes a single entry from the user's ignore list (un-ignore).
+ * DELETE removes a single entry from the global ignore list (un-ignore).
+ * Any authenticated user can remove entries.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -14,7 +15,7 @@ const logger = RMABLogger.create('API.IgnoredAudiobooks');
 
 /**
  * DELETE /api/user/ignored-audiobooks/[id]
- * Remove an audiobook from the user's ignore list
+ * Remove an audiobook from the global ignore list
  */
 export async function DELETE(
   request: NextRequest,
@@ -28,10 +29,7 @@ export async function DELETE(
 
       const { id } = await params;
 
-      // Verify ownership before deleting
-      const existing = await prisma.ignoredAudiobook.findUnique({
-        where: { id },
-      });
+      const existing = await prisma.ignoredAudiobook.findUnique({ where: { id } });
 
       if (!existing) {
         return NextResponse.json(
@@ -40,16 +38,9 @@ export async function DELETE(
         );
       }
 
-      if (existing.userId !== req.user.id) {
-        return NextResponse.json(
-          { error: 'Forbidden', message: 'Cannot modify another user\'s ignore list' },
-          { status: 403 }
-        );
-      }
-
       await prisma.ignoredAudiobook.delete({ where: { id } });
 
-      logger.info(`User ${req.user.id} un-ignored ASIN ${existing.asin} ("${existing.title}")`);
+      logger.info(`User ${req.user.id} removed ASIN ${existing.asin} ("${existing.title}") from global ignore list`);
 
       return NextResponse.json({ success: true });
     } catch (error) {
