@@ -98,14 +98,8 @@ export async function processMonitorRssFeeds(payload: MonitorRssFeedsPayload): P
         // Trigger appropriate search job based on request type
         try {
           if (request.type === 'ebook') {
-            await jobQueue.addSearchEbookJob(request.id, {
-              id: audiobook.id,
-              title: audiobook.title,
-              author: audiobook.author,
-              asin: audiobook.audibleAsin || undefined,
-            });
-            matched++;
-            logger.info(`Triggered ebook search job for request ${request.id}`);
+            // Ebook search is manual-only — skip auto-trigger from RSS
+            logger.info(`Skipping auto ebook search for request ${request.id} (manual search required)`);
           } else {
             await jobQueue.addSearchJob(request.id, {
               id: audiobook.id,

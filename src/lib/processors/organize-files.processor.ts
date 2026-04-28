@@ -924,18 +924,7 @@ async function createEbookRequestIfEnabled(
       },
     });
 
-    logger.info(`Created ebook request ${ebookRequest.id}`);
-
-    // Trigger ebook search job (Anna's Archive)
-    const jobQueue = getJobQueueService();
-    await jobQueue.addSearchEbookJob(ebookRequest.id, {
-      id: audiobook.id,
-      title: audiobook.title,
-      author: audiobook.author,
-      asin: audiobook.audibleAsin || undefined,
-    });
-
-    logger.info(`Triggered search_ebook job for request ${ebookRequest.id}`);
+    logger.info(`Created ebook request ${ebookRequest.id} — awaiting manual search`);
   } catch (error) {
     // Don't fail the main audiobook organization if ebook request creation fails
     logger.error(`Failed to create ebook request: ${error instanceof Error ? error.message : 'Unknown error'}`);
