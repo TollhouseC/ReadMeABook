@@ -39,7 +39,7 @@ export interface DiscoveredAudiobook {
   totalSizeBytes: number;
   metadata: AudioFileMetadata;
   searchTerm: string;         // Constructed search query for Audible
-  metadataSource: 'tags' | 'file_name';  // Where the search term came from
+  metadataSource: 'tags' | 'file_name' | 'folder_name';  // Where the search term came from
   audioFiles: string[];       // File names (relative to folderPath) belonging to this book
   groupingKey: string;        // Normalized key for cross-folder deduplication
 }
@@ -140,15 +140,16 @@ export function deduplicateNames(
 }
 
 /**
- * Build a search term from metadata or file name.
+ * Build a search term from metadata, folder name, or file name.
  * Returns the search term and the source it was derived from.
  * When metadata tags are present, constructs "Title Author Narrator ContributingArtists".
- * When tags are empty, falls back to the first audio file's name (cleaned).
+ * When tags are empty, prefers the folder name, then falls back to the first audio file name.
  */
 export function buildSearchTerm(
   metadata: AudioFileMetadata,
-  firstFileName: string
-): { searchTerm: string; source: 'tags' | 'file_name' } {
+  firstFileName: string,
+  folderName?: string
+): { searchTerm: string; source: 'tags' | 'file_name' | 'folder_name' } {
   const { author, narrator, contributingArtists } = deduplicateNames(
     metadata.author,
     metadata.narrator,
@@ -165,17 +166,29 @@ export function buildSearchTerm(
     return { searchTerm: parts.join(' '), source: 'tags' };
   }
 
-  // Fallback: clean up the first audio file name and use it as search term
-  const cleaned = firstFileName
-    .replace(/\.[^.]+$/, '')                       // Remove file extension
+  // Prefer folder name over individual file name for tagless files
+  if (folderName) {
+    const cleaned = cleanSearchFallback(folderName);
+    if (cleaned) return { searchTerm: cleaned, source: 'folder_name' };
+  }
+
+  // Last resort: clean up the first audio file name
+  const cleaned = cleanSearchFallback(firstFileName.replace(/\.[^.]+$/, ''));
+  return { searchTerm: cleaned || firstFileName, source: 'file_name' };
+}
+
+/**
+ * Clean a raw folder/file name into a usable Audible search term.
+ */
+function cleanSearchFallback(raw: string): string {
+  return raw
+    .replace(/[B][A-Z0-9]{9}/gi, '')              // Remove bare ASINs
     .replace(/[\[\(][A-Z0-9]{10}[\]\)]/g, '')     // Remove ASIN in brackets
     .replace(/[\[\(]\d{4}[\]\)]/g, '')             // Remove year in brackets
     .replace(/^\d+[\s._-]+/, '')                   // Remove leading track numbers
     .replace(/[_]/g, ' ')                           // Underscores to spaces
     .replace(/\s+/g, ' ')                           // Collapse whitespace
     .trim();
-
-  return { searchTerm: cleaned || firstFileName, source: 'file_name' };
 }
 
 /**
@@ -259,7 +272,8 @@ async function asyncPool<T, R>(
  * Group audio files in a directory by their metadata.
  * Reads metadata from all files using a concurrency pool, then groups them
  * by a normalized key of title + author + narrator.
- * Files with no metadata title each become their own group.
+ * Files with no metadata title are all grouped together under the folder name
+ * (they are most likely chapters of the same book in a tagless rip).
  */
 async function groupAudioFilesByMetadata(
   dirPath: string,
@@ -269,10 +283,12 @@ async function groupAudioFilesByMetadata(
   files: string[];
   totalSize: number;
   metadata: AudioFileMetadata;
-  metadataSource: 'tags' | 'file_name';
+  metadataSource: 'tags' | 'file_name' | 'folder_name';
   searchTerm: string;
   groupingKey: string;
 }>> {
+  const folderName = path.basename(dirPath);
+
   // Read metadata from all files with concurrency limit
   const metadataResults = await asyncPool(
     audioFiles,
@@ -284,14 +300,14 @@ async function groupAudioFilesByMetadata(
     }
   );
 
-  // Group by metadata key
+  // Group by metadata key; tagless files share a single folder-level group
   const groups = new Map<string, {
     files: string[];
     totalSize: number;
     metadata: AudioFileMetadata;
   }>();
 
-  let ungroupedCounter = 0;
+  const TAGLESS_KEY = `__tagless_folder_${folderName}`;
 
   for (const { fileName, metadata } of metadataResults) {
     const key = buildGroupingKey(metadata);
@@ -311,20 +327,30 @@ async function groupAudioFilesByMetadata(
         });
       }
     } else {
-      // No title metadata — treat as individual book
-      const uniqueKey = `__ungrouped_${ungroupedCounter++}`;
-      groups.set(uniqueKey, {
-        files: [fileName],
-        totalSize: fileSize,
-        metadata,
-      });
+      // No title metadata — group all tagless files together under the folder name
+      const existing = groups.get(TAGLESS_KEY);
+      if (existing) {
+        existing.files.push(fileName);
+        existing.totalSize += fileSize;
+      } else {
+        groups.set(TAGLESS_KEY, {
+          files: [fileName],
+          totalSize: fileSize,
+          metadata,
+        });
+      }
     }
   }
 
   // Build result with search terms
   return Array.from(groups.entries()).map(([groupingKey, group]) => {
     group.files.sort((a, b) => a.localeCompare(b));
-    const { searchTerm, source } = buildSearchTerm(group.metadata, group.files[0]);
+    const isTagless = groupingKey === TAGLESS_KEY;
+    const { searchTerm, source } = buildSearchTerm(
+      group.metadata,
+      group.files[0],
+      isTagless ? folderName : undefined
+    );
     return {
       files: group.files,
       totalSize: group.totalSize,
@@ -346,8 +372,8 @@ function deduplicateDiscoveries(
   const byKey = new Map<string, DiscoveredAudiobook[]>();
 
   for (const disc of discoveries) {
-    // Skip ungrouped entries (each is unique)
-    if (disc.groupingKey.startsWith('__ungrouped_')) {
+    // Skip tagless folder groups (each folder is its own unique entry)
+    if (disc.groupingKey.startsWith('__tagless_folder_')) {
       const key = `${disc.folderPath}::${disc.groupingKey}`;
       byKey.set(key, [disc]);
       continue;

@@ -17,6 +17,8 @@ export interface MetadataTaggingOptions {
   narrator?: string;
   year?: number;
   asin?: string;
+  series?: string;
+  seriesPart?: string;
 }
 
 export interface TaggingResult {
@@ -83,6 +85,14 @@ export async function tagAudioFileMetadata(
         args.push('-metadata', `----:com.apple.iTunes:ASIN="${escapeMetadata(metadata.asin)}"`);
       }
 
+      // Audiobookshelf series ordering tags (iTunes convention)
+      if (metadata.series) {
+        args.push('-metadata', `show="${escapeMetadata(metadata.series)}"`);
+      }
+      if (metadata.seriesPart) {
+        args.push('-metadata', `episode_id="${escapeMetadata(metadata.seriesPart)}"`);
+      }
+
       // Explicitly specify output format (fixes .tmp extension issue)
       args.push('-f', 'mp4');
     }
@@ -106,6 +116,13 @@ export async function tagAudioFileMetadata(
       if (metadata.asin) {
         // FLAC supports arbitrary Vorbis comment tags
         args.push('-metadata', `ASIN="${escapeMetadata(metadata.asin)}"`);
+      }
+
+      if (metadata.series) {
+        args.push('-metadata', `SERIES="${escapeMetadata(metadata.series)}"`);
+      }
+      if (metadata.seriesPart) {
+        args.push('-metadata', `SERIES-PART="${escapeMetadata(metadata.seriesPart)}"`);
       }
 
       // Explicitly specify output format
@@ -132,6 +149,13 @@ export async function tagAudioFileMetadata(
       if (metadata.asin) {
         // Use TXXX frame for custom ID3v2 tags in MP3 files
         args.push('-metadata', `ASIN="${escapeMetadata(metadata.asin)}"`);
+      }
+
+      if (metadata.series) {
+        args.push('-metadata', `SERIES="${escapeMetadata(metadata.series)}"`);
+      }
+      if (metadata.seriesPart) {
+        args.push('-metadata', `SERIES-PART="${escapeMetadata(metadata.seriesPart)}"`);
       }
 
       // Explicitly specify output format (fixes .tmp extension issue)

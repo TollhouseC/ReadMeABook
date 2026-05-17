@@ -38,6 +38,8 @@ interface AudiobookDetailsModalProps {
   hideRequestActions?: boolean;
   hasReportedIssue?: boolean;
   aiReason?: string | null;
+  /** When provided, renders these buttons in the action bar instead of the normal request buttons. */
+  adminActions?: React.ReactNode;
 }
 
 // Status helper
@@ -80,6 +82,7 @@ export function AudiobookDetailsModal({
   hideRequestActions = false,
   hasReportedIssue = false,
   aiReason = null,
+  adminActions,
 }: AudiobookDetailsModalProps) {
   const { user } = useAuth();
   const { squareCovers } = usePreferences();
@@ -548,6 +551,36 @@ export function AudiobookDetailsModal({
                     </a>
                   </div>
 
+                  {/* Language */}
+                  {audiobook.language && (
+                    <div>
+                      <p className="text-gray-500 dark:text-gray-400">Language</p>
+                      <p className="font-medium text-gray-900 dark:text-gray-100 capitalize">
+                        {audiobook.language}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Format */}
+                  {audiobook.formatType && (
+                    <div>
+                      <p className="text-gray-500 dark:text-gray-400">Format</p>
+                      <p className="font-medium text-gray-900 dark:text-gray-100">
+                        {audiobook.formatType}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Publisher */}
+                  {(audiobook.publisherName || audiobook.publisher) && (
+                    <div>
+                      <p className="text-gray-500 dark:text-gray-400">Publisher</p>
+                      <p className="font-medium text-gray-900 dark:text-gray-100">
+                        {audiobook.publisherName || audiobook.publisher}
+                      </p>
+                    </div>
+                  )}
+
                   {/* Download Link - subtle utility, visible from any context */}
                   {isAvailable && downloadAvailable && requestId && user?.permissions?.download !== false && (
                     <div>
@@ -602,8 +635,18 @@ export function AudiobookDetailsModal({
         </div>
 
 
+        {/* Admin Action Bar - shown when admin actions are provided */}
+        {audiobook && !isLoading && adminActions && (
+          <div
+            className="sticky bottom-0 z-20 p-4 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-t border-gray-200/50 dark:border-gray-700/50"
+            style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
+          >
+            {adminActions}
+          </div>
+        )}
+
         {/* Sticky Action Bar - hidden when opened from read-only contexts */}
-        {audiobook && !isLoading && !hideRequestActions && (
+        {audiobook && !isLoading && !hideRequestActions && !adminActions && (
           <div
             className="sticky bottom-0 z-20 p-4 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-t border-gray-200/50 dark:border-gray-700/50"
             style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}

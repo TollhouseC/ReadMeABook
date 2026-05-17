@@ -42,6 +42,9 @@ export interface AudibleAudiobook {
   series?: string;
   seriesPart?: string;
   seriesAsin?: string;
+  language?: string;
+  publisherName?: string;
+  formatType?: string;
 }
 
 export interface AudibleSearchResult {
@@ -89,6 +92,8 @@ interface CatalogProduct {
   narrators?: CatalogProductNarrator[];
   publisher_summary?: string;
   merchandising_summary?: string;
+  publisher_name?: string;
+  format_type?: string;
   product_images?: Record<string, string>;
   runtime_length_min?: number;
   release_date?: string;
@@ -183,6 +188,9 @@ function mapCatalogProduct(product: CatalogProduct): AudibleAudiobook {
     series,
     seriesPart,
     seriesAsin,
+    language: product.language ?? undefined,
+    publisherName: product.publisher_name ?? undefined,
+    formatType: product.format_type ?? undefined,
   };
 }
 

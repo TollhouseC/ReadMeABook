@@ -157,14 +157,33 @@ export async function POST(request: NextRequest) {
               let match: any = null;
               let inLibrary = false;
               let hasActiveRequest = false;
+              let extractedAsin: string | undefined;
+
+              // Detect bare ASIN pattern in folder name (e.g. "B08G9PRS1K - Title")
+              const asinMatch = book.folderName.match(/\b(B[A-Z0-9]{9})\b/i);
+              if (asinMatch) {
+                try {
+                  const directResult = await audibleService.getAudiobookDetails(asinMatch[1].toUpperCase());
+                  if (directResult) {
+                    match = directResult;
+                    extractedAsin = asinMatch[1].toUpperCase();
+                  }
+                } catch {
+                  // Fall through to text search
+                }
+              }
 
               try {
-                const searchResult = await audibleService.search(book.searchTerm);
+                if (!match) {
+                  const searchResult = await audibleService.search(book.searchTerm);
 
-                if (searchResult.results.length > 0) {
-                  match = searchResult.results[0];
+                  if (searchResult.results.length > 0) {
+                    match = searchResult.results[0];
+                  }
+                }
 
-                  // Check library availability
+                // Check library availability and active requests for whatever match we have
+                if (match) {
                   const plexMatch = await findPlexMatch({
                     asin: match.asin,
                     title: match.title,
@@ -173,7 +192,6 @@ export async function POST(request: NextRequest) {
                   });
                   inLibrary = plexMatch !== null;
 
-                  // Check for active requests
                   if (!inLibrary) {
                     const activeRequest = await prisma.request.findFirst({
                       where: {
@@ -222,6 +240,7 @@ export async function POST(request: NextRequest) {
                   : null,
                 inLibrary,
                 hasActiveRequest,
+                extractedAsin,
               };
 
               results.push(result);

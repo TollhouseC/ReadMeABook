@@ -180,6 +180,8 @@ model Audiobook {
   series      String? // Book series name (e.g., "The Mistborn Saga")
   seriesPart  String? @map("series_part") // Series position (e.g., "1", "1.5", "Book 1")
   seriesAsin  String? @map("series_asin") // Audible series ASIN for linking to series detail page
+  language    String? // e.g. "english", "german"
+  publisher   String? // Publisher name from Audible
 
   // Request tracking
   status String @default("requested") // requested, downloading, processing, completed, failed

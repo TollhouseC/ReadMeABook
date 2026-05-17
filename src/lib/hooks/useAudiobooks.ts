@@ -34,6 +34,10 @@ export interface Audiobook {
   requestedByUsername?: string | null;  // Username who requested (only if not current user)
   hasReportedIssue?: boolean;  // True if an open issue exists for this audiobook
   isIgnored?: boolean;  // True if this user has ignored this audiobook from auto-requests
+  language?: string;      // e.g. "english", "german"
+  publisherName?: string; // Publisher name from Audible (not stored in DB, from live fetch)
+  formatType?: string;    // e.g. "Unabridged Audiobook" (not stored in DB, from live fetch)
+  publisher?: string;     // Publisher name stored in DB
 }
 
 export function useAudiobooks(type: 'popular' | 'new-releases', limit: number = 20, page: number = 1, hideAvailable: boolean = false) {

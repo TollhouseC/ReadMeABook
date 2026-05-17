@@ -34,12 +34,14 @@ export interface ScannedBook {
   relativePath: string;
   audioFileCount: number;
   totalSizeBytes: number;
-  metadataSource: 'tags' | 'file_name';
+  metadataSource: 'tags' | 'file_name' | 'folder_name';
   searchTerm: string;
   audioFiles: string[];
   match: AudibleMatch | null;
   inLibrary: boolean;
   hasActiveRequest: boolean;
+  /** Set when the match came from a direct ASIN lookup via the folder name. */
+  extractedAsin?: string;
   /** User toggle: true = skip this book during import. */
   skipped: boolean;
 }

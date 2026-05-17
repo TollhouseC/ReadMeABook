@@ -15,6 +15,7 @@ import { ToastProvider, useToast } from '@/components/ui/Toast';
 import { ReportedIssuesSection } from './components/ReportedIssuesSection';
 import { InteractiveTorrentSearchModal } from '@/components/requests/InteractiveTorrentSearchModal';
 import { BulkImportWizard } from '@/components/admin/BulkImportWizard';
+import { AudiobookDetailsModal } from '@/components/audiobooks/AudiobookDetailsModal';
 import { TorrentResult } from '@/lib/utils/ranking-algorithm';
 import { formatDistanceToNow } from 'date-fns';
 import { useState } from 'react';
@@ -60,6 +61,7 @@ function PendingApprovalSection({ requests }: { requests: PendingApprovalRequest
   const toast = useToast();
   const [loadingStates, setLoadingStates] = useState<Record<string, boolean>>({});
   const [searchModalRequestId, setSearchModalRequestId] = useState<string | null>(null);
+  const [infoModalRequest, setInfoModalRequest] = useState<PendingApprovalRequest | null>(null);
 
   const searchModalRequest = searchModalRequestId
     ? requests.find((r) => r.id === searchModalRequestId)
@@ -192,6 +194,18 @@ function PendingApprovalSection({ requests }: { requests: PendingApprovalRequest
                       <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">
                         {request.audiobook.title}
                       </h3>
+                      {request.audiobook.audibleAsin && (
+                        <button
+                          onClick={() => setInfoModalRequest(request)}
+                          className="flex-shrink-0 p-0.5 rounded text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                          title="View book details"
+                          aria-label="View book details"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        </button>
+                      )}
                       {request.type === 'ebook' && (
                         <span
                           className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium flex-shrink-0"
@@ -373,6 +387,58 @@ function PendingApprovalSection({ requests }: { requests: PendingApprovalRequest
           onSuccess={() => {
             setSearchModalRequestId(null);
           }}
+        />
+      )}
+
+      {/* Book Info Modal for pending approval cards */}
+      {infoModalRequest?.audiobook.audibleAsin && (
+        <AudiobookDetailsModal
+          asin={infoModalRequest.audiobook.audibleAsin}
+          isOpen={!!infoModalRequest}
+          onClose={() => setInfoModalRequest(null)}
+          hideRequestActions
+          adminActions={
+            <div className="flex gap-2">
+              <button
+                onClick={async () => {
+                  setInfoModalRequest(null);
+                  await handleApproveRequest(infoModalRequest.id);
+                }}
+                disabled={loadingStates[infoModalRequest.id]}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Approve
+              </button>
+              <button
+                onClick={() => {
+                  setInfoModalRequest(null);
+                  setSearchModalRequestId(infoModalRequest.id);
+                }}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                Search
+              </button>
+              <button
+                onClick={async () => {
+                  setInfoModalRequest(null);
+                  await handleDenyRequest(infoModalRequest.id);
+                }}
+                disabled={loadingStates[infoModalRequest.id]}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Deny
+              </button>
+            </div>
+          }
         />
       )}
     </div>
