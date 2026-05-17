@@ -102,6 +102,18 @@ export class FileOrganizer {
       // Find audiobook files
       let { audioFiles, coverFile, isFile } = await this.findAudiobookFiles(downloadPath);
 
+      // Deduplicate: when multiple formats are present (e.g. mp3 + m4b = two copies of the same book),
+      // keep only the highest-quality format and drop the rest to avoid double storage use.
+      const beforeFilterCount = audioFiles.length;
+      audioFiles = this.filterToPreferredFormat(audioFiles);
+      if (audioFiles.length < beforeFilterCount) {
+        const keptExt = path.extname(audioFiles[0]).toLowerCase();
+        await logger?.info(
+          `Mixed audio formats detected — keeping ${audioFiles.length} ${keptExt} file(s), ` +
+          `dropped ${beforeFilterCount - audioFiles.length} file(s) of other format(s)`
+        );
+      }
+
       // Filter to only selected files if specified
       if (selectedFiles && selectedFiles.length > 0) {
         const selectedSet = new Set(selectedFiles);
@@ -518,6 +530,41 @@ export class FileOrganizer {
       result.errors.push(error instanceof Error ? error.message : 'Unknown error');
       return result;
     }
+  }
+
+  /**
+   * When a download contains multiple audio formats (e.g. both .mp3 and .m4b),
+   * keep only files of the single best-quality format and discard the rest.
+   * Multiple formats in one download = duplicate copies of the same book.
+   *
+   * Preference order: .m4b > .m4a > .mp3 > .flac > .aac > others
+   */
+  private filterToPreferredFormat(audioFiles: string[]): string[] {
+    const FORMAT_PREFERENCE = ['.m4b', '.m4a', '.mp3', '.flac', '.aac'];
+
+    const byExtension = new Map<string, string[]>();
+    for (const f of audioFiles) {
+      const ext = path.extname(f).toLowerCase();
+      const group = byExtension.get(ext) ?? [];
+      group.push(f);
+      byExtension.set(ext, group);
+    }
+
+    if (byExtension.size <= 1) return audioFiles; // Single format — nothing to do
+
+    // Pick the highest-priority format present
+    for (const preferred of FORMAT_PREFERENCE) {
+      if (byExtension.has(preferred)) {
+        return byExtension.get(preferred)!;
+      }
+    }
+
+    // Fallback: return the largest group (most files = most likely the "real" copy)
+    let best: string[] = [];
+    for (const group of byExtension.values()) {
+      if (group.length > best.length) best = group;
+    }
+    return best;
   }
 
   /**
