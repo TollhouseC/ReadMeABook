@@ -101,13 +101,10 @@ export async function processSearchEbook(payload: SearchEbookPayload): Promise<a
       const MAX_SEARCH_ATTEMPTS = 5;
       const attempts = requestRecord?.searchAttempts ?? 1;
 
-      if (attempts >= MAX_SEARCH_ATTEMPTS || enabledSources.length === 0) {
-        const message = enabledSources.length === 0
-          ? 'No ebook sources enabled. Enable Anna\'s Archive or Indexer Search in settings.'
-          : `No ebook found after ${attempts} attempts. Giving up.`;
-
-        logger.warn(`No ebook found for request ${requestId} after ${attempts} attempt(s), marking as failed`);
-
+      if (enabledSources.length === 0) {
+        // No sources configured at all — fail permanently, nothing to retry
+        const message = 'No ebook sources enabled. Enable Anna\'s Archive or Indexer Search in settings.';
+        logger.warn(`No ebook sources enabled for request ${requestId}, marking as failed`);
         await prisma.request.update({
           where: { id: requestId },
           data: {
@@ -117,7 +114,27 @@ export async function processSearchEbook(payload: SearchEbookPayload): Promise<a
             updatedAt: new Date(),
           },
         });
+        return { success: false, message, requestId };
+      }
 
+      const jobQueue = getJobQueueService();
+
+      if (attempts >= MAX_SEARCH_ATTEMPTS) {
+        // Initial burst (5 × 2hr) exhausted — move to 30-day dormant retry.
+        // Anna's Archive catalog grows over time so it's worth checking again eventually.
+        const DORMANT_RETRY_DELAY_MS = 30 * 24 * 60 * 60 * 1000;
+        const message = `No ebook found after ${attempts} attempts. Will check again in 30 days.`;
+        logger.warn(`No ebook found for request ${requestId} after ${attempts} attempt(s), entering 30-day dormant retry`);
+        await prisma.request.update({
+          where: { id: requestId },
+          data: {
+            status: 'awaiting_search',
+            errorMessage: message,
+            lastSearchAt: new Date(),
+            updatedAt: new Date(),
+          },
+        });
+        await jobQueue.addSearchEbookJob(requestId, audiobook, payloadFormat, DORMANT_RETRY_DELAY_MS);
         return { success: false, message, requestId };
       }
 
@@ -137,13 +154,7 @@ export async function processSearchEbook(payload: SearchEbookPayload): Promise<a
         },
       });
 
-      const jobQueue = getJobQueueService();
-      await jobQueue.addSearchEbookJob(
-        requestId,
-        audiobook,
-        payloadFormat,
-        RETRY_DELAY_MS
-      );
+      await jobQueue.addSearchEbookJob(requestId, audiobook, payloadFormat, RETRY_DELAY_MS);
 
       return { success: false, message, requestId };
     }

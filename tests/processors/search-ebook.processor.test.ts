@@ -15,6 +15,7 @@ const configServiceMock = vi.hoisted(() => ({
 
 const jobQueueMock = vi.hoisted(() => ({
   addStartDirectDownloadJob: vi.fn(() => Promise.resolve()),
+  addSearchEbookJob: vi.fn(() => Promise.resolve('job-id')),
 }));
 
 const ebookScraperMock = vi.hoisted(() => ({
@@ -179,7 +180,7 @@ describe('processSearchEbook', () => {
     });
 
     expect(result.success).toBe(false);
-    expect(result.message).toContain('re-search');
+    expect(result.message).toContain('Retrying in 2 hours');
     expect(prismaMock.request.update).toHaveBeenCalledWith({
       where: { id: 'req-4' },
       data: expect.objectContaining({
@@ -211,7 +212,7 @@ describe('processSearchEbook', () => {
     });
 
     expect(result.success).toBe(false);
-    expect(result.message).toContain('re-search');
+    expect(result.message).toContain('Retrying in 2 hours');
     expect(prismaMock.request.update).toHaveBeenCalledWith({
       where: { id: 'req-5' },
       data: expect.objectContaining({
@@ -260,6 +261,40 @@ describe('processSearchEbook', () => {
       'http://flaresolverr:8191',
       'en'
     );
+  });
+
+  it('enters 30-day dormant retry after max attempts exhausted', async () => {
+    prismaMock.request.update.mockResolvedValue({ searchAttempts: 5 });
+
+    ebookScraperMock.searchByAsin.mockResolvedValue(null);
+    ebookScraperMock.searchByTitle.mockResolvedValue(null);
+
+    const { processSearchEbook } = await import('@/lib/processors/search-ebook.processor');
+
+    const result = await processSearchEbook({
+      requestId: 'req-dormant',
+      audiobook: {
+        id: 'ab-dormant',
+        title: 'Dormant Book',
+        author: 'Dormant Author',
+        asin: 'B00DORMANT',
+      },
+      jobId: 'job-dormant',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('30 days');
+    expect(prismaMock.request.update).toHaveBeenCalledWith({
+      where: { id: 'req-dormant' },
+      data: expect.objectContaining({
+        status: 'awaiting_search',
+        errorMessage: expect.stringContaining('30 days'),
+        lastSearchAt: expect.any(Date),
+      }),
+    });
+    // Should schedule a future job, not permanently fail
+    expect(jobQueueMock.addSearchEbookJob).toHaveBeenCalled();
+    expect(jobQueueMock.addStartDirectDownloadJob).not.toHaveBeenCalled();
   });
 
   it('fails request on unexpected errors', async () => {
