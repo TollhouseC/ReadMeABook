@@ -5,6 +5,7 @@
 
 'use client';
 
+import { useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { useToast } from '@/components/ui/Toast';
 
@@ -14,6 +15,7 @@ interface UserPermissionsUser {
   plexEmail: string;
   avatarUrl: string | null;
   role: 'user' | 'admin';
+  authProvider: string | null;
   autoApproveRequests: boolean | null;
   interactiveSearchAccess: boolean | null;
   downloadAccess: boolean | null;
@@ -32,6 +34,7 @@ interface UserPermissionsModalProps {
   onToggleInteractiveSearch: (user: UserPermissionsUser, newValue: boolean) => void;
   onToggleDownloadAccess: (user: UserPermissionsUser, newValue: boolean) => void;
   onToggleToken: (user: UserPermissionsUser, newValue: boolean) => void;
+  onResetPassword: (user: UserPermissionsUser, newPassword: string) => Promise<void>;
 }
 
 interface PermissionToggleProps {
@@ -160,6 +163,82 @@ function LoginTokenRow({ value, generatedToken, onToggle }: LoginTokenRowProps) 
   );
 }
 
+interface ResetPasswordRowProps {
+  user: UserPermissionsUser;
+  onResetPassword: (user: UserPermissionsUser, newPassword: string) => Promise<void>;
+}
+
+function ResetPasswordRow({ user, onResetPassword }: ResetPasswordRowProps) {
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const toast = useToast();
+
+  const passwordsMatch = newPassword.length > 0 && newPassword === confirmPassword;
+  const canSubmit = passwordsMatch && !isLoading;
+
+  const handleReset = async () => {
+    if (!canSubmit) return;
+    setIsLoading(true);
+    try {
+      await onResetPassword(user, newPassword);
+      setNewPassword('');
+      setConfirmPassword('');
+      toast.success('Password reset successfully');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to reset password');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2 p-3 border border-gray-200 dark:border-gray-700 rounded-lg">
+      <div>
+        <div className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
+          Reset Password
+        </div>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          Set a new password for this user without requiring their current one
+        </p>
+      </div>
+      <div className="flex flex-col gap-2">
+        <input
+          type="password"
+          placeholder="New password"
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+          className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <div className="flex gap-2">
+          <input
+            type="password"
+            placeholder="Confirm password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleReset(); }}
+            className={`flex-1 px-3 py-1.5 text-sm border rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+              confirmPassword.length > 0 && !passwordsMatch
+                ? 'border-red-400 dark:border-red-500'
+                : 'border-gray-300 dark:border-gray-600'
+            }`}
+          />
+          <button
+            onClick={handleReset}
+            disabled={!canSubmit}
+            className="px-3 py-1.5 text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            {isLoading ? 'Saving…' : 'Reset'}
+          </button>
+        </div>
+        {confirmPassword.length > 0 && !passwordsMatch && (
+          <p className="text-xs text-red-500 dark:text-red-400">Passwords do not match</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function UserPermissionsModal({
   isOpen,
   onClose,
@@ -172,6 +251,7 @@ export function UserPermissionsModal({
   onToggleInteractiveSearch,
   onToggleDownloadAccess,
   onToggleToken,
+  onResetPassword,
 }: UserPermissionsModalProps) {
   if (!user) return null;
 
@@ -287,6 +367,11 @@ export function UserPermissionsModal({
                 generatedToken={generatedToken}
                 onToggle={() => onToggleToken(user, !(user.hasLoginToken || generatedToken !== null))}
             />
+
+            {/* Reset Password — local accounts only */}
+            {user.authProvider === 'local' && (
+              <ResetPasswordRow user={user} onResetPassword={onResetPassword} />
+            )}
           </div>
         </div>
       </div>

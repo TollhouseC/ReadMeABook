@@ -365,6 +365,16 @@ function AdminUsersPageContent() {
     }
   };
 
+  const handleResetPassword = async (user: { id: string; plexUsername: string }, newPassword: string) => {
+    const response = await fetchJSON(`/api/admin/users/${user.id}/reset-password`, {
+      method: 'POST',
+      body: JSON.stringify({ newPassword }),
+    });
+    if (!response.success) {
+      throw new Error(response.error || 'Failed to reset password');
+    }
+  };
+
   const handleToggleToken = async (user: { id: string; plexUsername: string }, newValue: boolean) => {
     try {
       if (newValue) {
@@ -1009,6 +1019,7 @@ function AdminUsersPageContent() {
           onToggleToken={(user, newValue) => {
             handleToggleToken(user, newValue);
           }}
+          onResetPassword={handleResetPassword}
         />
       </div>
     </div>
