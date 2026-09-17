@@ -317,13 +317,17 @@ export async function processScanPlex(payload: ScanPlexPayload): Promise<any> {
 
             audiobooksReset++;
 
-            // Reset any 'available' requests back to 'downloaded' or 'failed'
+            // Book removed from library → make the request re-requestable.
+            // Resetting to 'downloaded' is a dead-end: it renders as "Processing" and
+            // blocks re-requesting. Cancel instead — re-requesting deletes the cancelled
+            // record and starts a fresh request.
             for (const request of audiobook.requests) {
-              if (request.status === 'available') {
+              if (request.status === 'available' || request.status === 'downloaded') {
                 await prisma.request.update({
                   where: { id: request.id },
                   data: {
-                    status: 'downloaded', // Back to downloaded state (files may still be there)
+                    status: 'cancelled',
+                    errorMessage: 'Removed from library',
                     updatedAt: new Date(),
                   },
                 });
@@ -409,13 +413,14 @@ export async function processScanPlex(payload: ScanPlexPayload): Promise<any> {
 
         orphanedAudiobooksReset++;
 
-        // Reset any 'available' requests
+        // Book removed from library → cancel so it can be re-requested (see step 5)
         for (const request of audiobook.requests) {
-          if (request.status === 'available') {
+          if (request.status === 'available' || request.status === 'downloaded') {
             await prisma.request.update({
               where: { id: request.id },
               data: {
-                status: 'downloaded',
+                status: 'cancelled',
+                errorMessage: 'Removed from library',
                 updatedAt: new Date(),
               },
             });
@@ -431,6 +436,67 @@ export async function processScanPlex(payload: ScanPlexPayload): Promise<any> {
       logger.info(`Reset ${orphanedAudiobooksReset} orphaned audiobooks and ${orphanedRequestsReset} requests`);
     } else {
       logger.info(`No orphaned audiobooks found`);
+    }
+
+    // 5c. Repair records stuck at 'downloaded' from a book removed from the library
+    // before the cancel-on-removal fix existed (these froze forever, rendering as
+    // "Processing" and blocking re-requests). A genuine awaiting-import request gets
+    // matched to the library within a scan cycle (step 6 runs every scan), so a
+    // 'downloaded' request that isn't in the library AND hasn't changed in 48h is a
+    // leftover of a deleted book — cancel it so it can be re-requested.
+    logger.info(`Checking for stuck 'downloaded' records (removed from library)...`);
+
+    const STUCK_DOWNLOADED_THRESHOLD_MS = 48 * 60 * 60 * 1000; // 48 hours
+    const stuckCutoff = new Date(Date.now() - STUCK_DOWNLOADED_THRESHOLD_MS);
+
+    // ASINs currently present in the library (used to avoid cancelling books that ARE
+    // present and will be promoted to 'available' by step 6 below).
+    const libraryAsinRows = await prisma.plexLibrary.findMany({
+      where: { asin: { not: null } },
+      select: { asin: true },
+    });
+    const libraryAsinSet = new Set(
+      libraryAsinRows.map(r => r.asin!.toLowerCase())
+    );
+
+    const stuckDownloadedRequests = await prisma.request.findMany({
+      where: {
+        type: 'audiobook',
+        status: 'downloaded',
+        deletedAt: null,
+        updatedAt: { lt: stuckCutoff },
+      },
+      include: { audiobook: true },
+    });
+
+    let stuckDownloadedCancelled = 0;
+    for (const request of stuckDownloadedRequests) {
+      const ab = request.audiobook;
+      // Still linked to a library item → not stuck (step 6 will promote it)
+      if (ab.plexGuid || ab.absItemId) continue;
+      // ASIN still in the library → not stuck (step 6 will match it to 'available')
+      if (ab.audibleAsin && libraryAsinSet.has(ab.audibleAsin.toLowerCase())) continue;
+
+      try {
+        await prisma.request.update({
+          where: { id: request.id },
+          data: {
+            status: 'cancelled',
+            errorMessage: 'Removed from library',
+            updatedAt: new Date(),
+          },
+        });
+        stuckDownloadedCancelled++;
+        logger.info(`Cancelled stuck 'downloaded' request for "${ab.title}" (no longer in library)`);
+      } catch (error) {
+        logger.error(`Failed to cancel stuck request ${request.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+
+    if (stuckDownloadedCancelled > 0) {
+      logger.info(`Cancelled ${stuckDownloadedCancelled} stuck 'downloaded' record(s) removed from library`);
+    } else {
+      logger.info(`No stuck 'downloaded' records found`);
     }
 
     // 6. Match all non-terminal audiobook requests against library
@@ -541,6 +607,7 @@ export async function processScanPlex(payload: ScanPlexPayload): Promise<any> {
       requestsReset,
       orphanedAudiobooksReset,
       orphanedRequestsReset,
+      stuckDownloadedCancelled,
       matchedDownloads: matchedCount,
     });
 
@@ -558,6 +625,7 @@ export async function processScanPlex(payload: ScanPlexPayload): Promise<any> {
       requestsReset,
       orphanedAudiobooksReset,
       orphanedRequestsReset,
+      stuckDownloadedCancelled,
       newAudiobooks: results,
       matchedDownloads: matchedCount,
     };

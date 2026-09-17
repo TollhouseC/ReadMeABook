@@ -63,6 +63,8 @@ Manages background job queue using Bull (Redis-backed) for async tasks: searchin
 - Matched requests → 'available' status with plexGuid/absItemId linked
 - Clears errorMessage and retry counters on match
 - Use case: Manual library imports automatically complete stuck requests
+- **Removal detection:** items no longer in the library (stale/orphaned) have their linked audiobook reset and their 'available'/'downloaded' request set to `cancelled` (errorMessage 'Removed from library') so the book shows as not-in-library and can be re-requested
+- **Backlog repair:** requests stuck at 'downloaded' whose book is not in the library and unchanged for >48h are also cancelled (fixes books removed before removal-detection cancelled instead of resetting to 'downloaded')
 
 **plex_recently_added_check:**
 - Polls recently added items (top 10) every 5 minutes
