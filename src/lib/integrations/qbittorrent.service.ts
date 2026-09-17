@@ -36,6 +36,11 @@ export interface AddTorrentOptions {
 
 export interface TorrentInfo {
   hash: string;
+  // BitTorrent v2 / hybrid torrents (qBittorrent 4.4+/libtorrent 2.0): the `hash`
+  // (torrent ID) for a hybrid torrent is derived from the v2 hash, NOT the v1 hash.
+  // A v1 magnet's btih matches `infohash_v1`, so we must check these to find it.
+  infohash_v1?: string;
+  infohash_v2?: string;
   name: string;
   size: number;
   progress: number; // 0.0 to 1.0
@@ -292,8 +297,8 @@ export class QBittorrentService implements IDownloadClient {
     // Check for duplicates
     try {
       const existing = await this.getTorrent(infoHash);
-      logger.info(` Torrent ${infoHash} already exists (duplicate), returning existing hash`);
-      return infoHash;
+      logger.info(` Torrent ${infoHash} already exists (duplicate, id ${existing.hash}), returning existing hash`);
+      return existing.hash;
     } catch {
       // Torrent doesn't exist, continue with adding
     }
@@ -446,8 +451,8 @@ export class QBittorrentService implements IDownloadClient {
     // Check for duplicates
     try {
       const existing = await this.getTorrent(infoHash);
-      logger.info(` Torrent ${infoHash} already exists (duplicate), returning existing hash`);
-      return infoHash;
+      logger.info(` Torrent ${infoHash} already exists (duplicate, id ${existing.hash}), returning existing hash`);
+      return existing.hash;
     } catch {
       // Torrent doesn't exist, continue with adding
     }
@@ -596,34 +601,37 @@ export class QBittorrentService implements IDownloadClient {
 
     const normalizedHash = hash.toLowerCase();
 
+    // Match against the torrent ID AND both v1/v2 infohashes. For hybrid/v2 torrents
+    // qBittorrent's `hash` is derived from the v2 hash, so a v1 magnet's btih only
+    // matches `infohash_v1`. Checking all three finds the torrent either way.
+    const hashMatches = (t: TorrentInfo): boolean =>
+      t.hash?.toLowerCase() === normalizedHash ||
+      t.infohash_v1?.toLowerCase() === normalizedHash ||
+      t.infohash_v2?.toLowerCase() === normalizedHash;
+
     // Primary lookup: filtered by hash
     const response = await this.client.get('/torrents/info', {
       headers: { Cookie: this.cookie },
       params: { hashes: hash },
     });
 
-    // Find the torrent with the exact matching hash.
-    // Some qBittorrent-compatible clients (e.g. RDTClient) ignore the hashes
-    // filter and return all torrents, so we must verify the hash ourselves.
+    // Verify the hash ourselves — some qBittorrent-compatible clients (e.g. RDTClient)
+    // ignore the hashes filter and return all torrents.
     const filtered: TorrentInfo[] = response.data || [];
-    const match = filtered.find(
-      (t: TorrentInfo) => t.hash?.toLowerCase() === normalizedHash
-    );
+    const match = filtered.find(hashMatches);
     if (match) {
       return match;
     }
 
     // Fallback: some qBittorrent versions/proxies return an EMPTY result for a
-    // hashes= filter even when the torrent IS present (the inverse of the quirk
-    // above). This is what makes duplicate detection miss and the add then 409.
-    // Re-query the full list and match the hash ourselves before concluding absence.
+    // hashes= filter even when the torrent IS present (e.g. when the requested hash
+    // is the v1 hash of a hybrid torrent whose ID is the v2 hash). Re-query the full
+    // list and match ourselves before concluding absence.
     const allResponse = await this.client.get('/torrents/info', {
       headers: { Cookie: this.cookie },
     });
     const all: TorrentInfo[] = allResponse.data || [];
-    const fallbackMatch = all.find(
-      (t: TorrentInfo) => t.hash?.toLowerCase() === normalizedHash
-    );
+    const fallbackMatch = all.find(hashMatches);
     if (fallbackMatch) {
       return fallbackMatch;
     }
@@ -638,9 +646,11 @@ export class QBittorrentService implements IDownloadClient {
    */
   private async resolveExistingTorrent(infoHash: string, source: string): Promise<string> {
     try {
-      await this.getTorrent(infoHash);
-      logger.info(` Torrent ${infoHash} already exists in qBittorrent — re-linking to existing torrent`);
-      return infoHash;
+      const existing = await this.getTorrent(infoHash);
+      // Return qBittorrent's canonical torrent ID (may differ from the v1 infoHash
+      // for hybrid torrents) so downstream monitoring/ops use an ID qBit resolves.
+      logger.info(` Torrent ${infoHash} already exists in qBittorrent (id ${existing.hash}) — re-linking to existing torrent`);
+      return existing.hash;
     } catch {
       throw new Error(
         `qBittorrent reports this ${source} already exists (HTTP 409) but it could not be found in the client. ` +

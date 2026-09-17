@@ -238,7 +238,9 @@ type TorrentState =
    - Singleton loads path mapping config from database
 **15. HTTP 409 on add treated as hard failure** - qBittorrent (5.x) returns HTTP 409 when a torrent already exists. The add path only retried on 403, so a duplicate failed the request outright. Also, the pre-add duplicate check via `getTorrent()` used `/torrents/info?hashes=` which can return empty even when the torrent IS present (version/proxy quirk), so the duplicate went undetected and hit the 409. Fixed by:
    - `getTorrent()` now falls back to a full `/torrents/info` list scan and matches the hash itself when the filtered query returns nothing (fixes both duplicate detection and the download monitor's lookup)
-   - `addMagnetLink()`/`addTorrentFile()` catch HTTP 409 and re-link to the existing torrent (return its info_hash) instead of failing
+   - **v1/v2 hybrid hash matching:** hybrid (BitTorrent v1+v2) torrents report a `hash` (torrent ID) derived from the v2 hash, so a v1 magnet's btih only matches the `infohash_v1` field. `getTorrent()` now matches against `hash`, `infohash_v1`, and `infohash_v2`. This was the real cause of "409 but not found in client" — the torrent WAS present but looked up by its v1 hash while qBit's `hash` was the v2-derived ID.
+   - Duplicate/re-link paths now return qBittorrent's canonical `hash` (torrent ID) so downstream monitoring/ops use an ID qBit resolves natively
+   - `addMagnetLink()`/`addTorrentFile()` catch HTTP 409 and re-link to the existing torrent instead of failing
    - If a 409 occurs and the torrent still can't be located, a clear actionable error is thrown ("remove it from qBittorrent and retry") instead of the generic "Failed to add torrent"
 
 **15. Missing qBittorrent torrent states** - Monitor never detected completion for force-resumed torrents (`forcedDL`/`forcedUP`), causing infinite polling at 100%. Also missing metadata states (`metaDL`/`forcedMetaDL`), qBittorrent v5.x renamed states (`stoppedDL`/`stoppedUP`), and utility states (`checkingResumeData`/`moving`). Fixed by:
