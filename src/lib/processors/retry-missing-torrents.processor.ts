@@ -81,64 +81,72 @@ export async function processRetryMissingTorrents(payload: RetryMissingTorrentsP
 
     logger.info(`Triggered ${triggered}/${requests.length} search jobs`);
 
-    // Recover requests stranded mid-download. The download monitor bumps updatedAt
-    // on every poll (at most every 5 min), so a 'downloading' request untouched for
-    // >2h means the monitor job died (server restart, lost job) and it will never
-    // complete. Re-queue a fresh search so it self-heals.
-    // Note: 'processing' is intentionally excluded — chapter-merging a long audiobook
-    // can legitimately run for hours without an updatedAt bump, and re-queuing it
-    // would interrupt a valid in-progress merge.
-    const STUCK_DOWNLOAD_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
-    const stuckCutoff = new Date(Date.now() - STUCK_DOWNLOAD_THRESHOLD_MS);
+    // Recover requests stranded mid-pipeline whose job died (server restart, lost
+    // job). Reset to awaiting_search and re-trigger a fresh search so they self-heal.
+    // Staleness (updatedAt) is the signal, with a per-status threshold:
+    //  - 'downloading': monitor bumps updatedAt at least every 5 min → 2h means dead.
+    //  - 'processing': chapter-merging a long audiobook can run for hours without an
+    //    updatedAt bump (max merge timeout ~4.2h), so use 8h to never interrupt a
+    //    valid in-progress merge.
+    const requeueStuck = async (
+      status: 'downloading' | 'processing',
+      cutoffMs: number
+    ): Promise<number> => {
+      const cutoff = new Date(Date.now() - cutoffMs);
 
-    const stuckRequests = await prisma.request.findMany({
-      where: {
-        status: 'downloading',
-        deletedAt: null,
-        updatedAt: { lt: stuckCutoff },
-      },
-      include: { audiobook: true },
-      take: 50,
-    });
+      const stuck = await prisma.request.findMany({
+        where: {
+          status,
+          deletedAt: null,
+          updatedAt: { lt: cutoff },
+        },
+        include: { audiobook: true },
+        take: 50,
+      });
 
-    logger.info(`Found ${stuckRequests.length} requests stuck in 'downloading'`);
+      logger.info(`Found ${stuck.length} requests stuck in '${status}'`);
 
-    let stuckRequeued = 0;
-    for (const request of stuckRequests) {
-      try {
-        // Reset to awaiting_search so state is consistent before re-triggering
-        await prisma.request.update({
-          where: { id: request.id },
-          data: { status: 'awaiting_search', updatedAt: new Date() },
-        });
-
-        if (request.type === 'ebook') {
-          await jobQueue.addSearchEbookJob(request.id, {
-            id: request.audiobook.id,
-            title: request.audiobook.title,
-            author: request.audiobook.author,
-            asin: request.audiobook.audibleAsin || undefined,
+      let requeued = 0;
+      for (const request of stuck) {
+        try {
+          // Reset to awaiting_search so state is consistent before re-triggering
+          await prisma.request.update({
+            where: { id: request.id },
+            data: { status: 'awaiting_search', updatedAt: new Date() },
           });
-        } else {
-          await jobQueue.addSearchJob(request.id, {
-            id: request.audiobook.id,
-            title: request.audiobook.title,
-            author: request.audiobook.author,
-            asin: request.audiobook.audibleAsin || undefined,
-          });
+
+          if (request.type === 'ebook') {
+            await jobQueue.addSearchEbookJob(request.id, {
+              id: request.audiobook.id,
+              title: request.audiobook.title,
+              author: request.audiobook.author,
+              asin: request.audiobook.audibleAsin || undefined,
+            });
+          } else {
+            await jobQueue.addSearchJob(request.id, {
+              id: request.audiobook.id,
+              title: request.audiobook.title,
+              author: request.audiobook.author,
+              asin: request.audiobook.audibleAsin || undefined,
+            });
+          }
+          requeued++;
+          logger.info(`Re-queued stuck '${status}' ${request.type} request ${request.id}: ${request.audiobook.title}`);
+        } catch (error) {
+          logger.error(`Failed to re-queue stuck '${status}' request ${request.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
-        stuckRequeued++;
-        logger.info(`Re-queued stuck 'downloading' ${request.type} request ${request.id}: ${request.audiobook.title}`);
-      } catch (error) {
-        logger.error(`Failed to re-queue stuck request ${request.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
 
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
+      if (requeued > 0) {
+        logger.info(`Re-queued ${requeued} stuck '${status}' request(s)`);
+      }
+      return requeued;
+    };
 
-    if (stuckRequeued > 0) {
-      logger.info(`Re-queued ${stuckRequeued} stuck 'downloading' request(s)`);
-    }
+    const stuckRequeued = await requeueStuck('downloading', 2 * 60 * 60 * 1000); // 2 hours
+    const stuckProcessingRequeued = await requeueStuck('processing', 8 * 60 * 60 * 1000); // 8 hours
 
     return {
       success: true,
@@ -146,6 +154,7 @@ export async function processRetryMissingTorrents(payload: RetryMissingTorrentsP
       totalRequests: requests.length,
       triggered,
       stuckRequeued,
+      stuckProcessingRequeued,
     };
   } catch (error) {
     logger.error(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
