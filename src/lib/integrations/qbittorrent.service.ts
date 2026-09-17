@@ -320,15 +320,24 @@ export class QBittorrentService implements IDownloadClient {
 
     logger.info('[QBittorrent] Uploading magnet link...');
 
-    const response = await this.client.post('/torrents/add', form, {
-      headers: {
-        Cookie: this.cookie,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-    });
+    try {
+      const response = await this.client.post('/torrents/add', form, {
+        headers: {
+          Cookie: this.cookie,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      });
 
-    if (response.data !== 'Ok.') {
-      throw new Error(`qBittorrent rejected magnet link: ${response.data}`);
+      if (response.data !== 'Ok.') {
+        throw new Error(`qBittorrent rejected magnet link: ${response.data}`);
+      }
+    } catch (error) {
+      // qBittorrent returns HTTP 409 when the torrent already exists — re-link to
+      // the existing torrent instead of hard-failing the request.
+      if (axios.isAxiosError(error) && error.response?.status === 409) {
+        return await this.resolveExistingTorrent(infoHash, 'magnet link');
+      }
+      throw error;
     }
 
     logger.info(` Successfully added magnet link: ${infoHash}`);
@@ -468,17 +477,26 @@ export class QBittorrentService implements IDownloadClient {
 
     logger.info('[QBittorrent] Uploading .torrent file content...');
 
-    const response = await this.client.post('/torrents/add', formData, {
-      headers: {
-        Cookie: this.cookie,
-        ...formData.getHeaders(),
-      },
-      maxBodyLength: Infinity,
-      maxContentLength: Infinity,
-    });
+    try {
+      const response = await this.client.post('/torrents/add', formData, {
+        headers: {
+          Cookie: this.cookie,
+          ...formData.getHeaders(),
+        },
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+      });
 
-    if (response.data !== 'Ok.') {
-      throw new Error(`qBittorrent rejected .torrent file: ${response.data}`);
+      if (response.data !== 'Ok.') {
+        throw new Error(`qBittorrent rejected .torrent file: ${response.data}`);
+      }
+    } catch (error) {
+      // qBittorrent returns HTTP 409 when the torrent already exists — re-link to
+      // the existing torrent instead of hard-failing the request.
+      if (axios.isAxiosError(error) && error.response?.status === 409) {
+        return await this.resolveExistingTorrent(infoHash, '.torrent file');
+      }
+      throw error;
     }
 
     logger.info(` Successfully added torrent: ${infoHash}`);
@@ -576,33 +594,58 @@ export class QBittorrentService implements IDownloadClient {
       await this.login();
     }
 
-    try {
-      const response = await this.client.get('/torrents/info', {
-        headers: { Cookie: this.cookie },
-        params: { hashes: hash },
-      });
+    const normalizedHash = hash.toLowerCase();
 
-      const torrents = response.data;
-      if (!torrents || torrents.length === 0) {
-        throw new Error(`Torrent ${hash} not found`);
-      }
+    // Primary lookup: filtered by hash
+    const response = await this.client.get('/torrents/info', {
+      headers: { Cookie: this.cookie },
+      params: { hashes: hash },
+    });
 
-      // Find the torrent with the exact matching hash.
-      // Some qBittorrent-compatible clients (e.g. RDTClient) ignore the hashes
-      // filter and return all torrents, so we must verify the hash ourselves.
-      const normalizedHash = hash.toLowerCase();
-      const match = torrents.find(
-        (t: TorrentInfo) => t.hash?.toLowerCase() === normalizedHash
-      );
-
-      if (!match) {
-        throw new Error(`Torrent ${hash} not found`);
-      }
-
+    // Find the torrent with the exact matching hash.
+    // Some qBittorrent-compatible clients (e.g. RDTClient) ignore the hashes
+    // filter and return all torrents, so we must verify the hash ourselves.
+    const filtered: TorrentInfo[] = response.data || [];
+    const match = filtered.find(
+      (t: TorrentInfo) => t.hash?.toLowerCase() === normalizedHash
+    );
+    if (match) {
       return match;
-    } catch (error) {
-      // Don't log error here - caller handles it (e.g., duplicate checking)
-      throw error;
+    }
+
+    // Fallback: some qBittorrent versions/proxies return an EMPTY result for a
+    // hashes= filter even when the torrent IS present (the inverse of the quirk
+    // above). This is what makes duplicate detection miss and the add then 409.
+    // Re-query the full list and match the hash ourselves before concluding absence.
+    const allResponse = await this.client.get('/torrents/info', {
+      headers: { Cookie: this.cookie },
+    });
+    const all: TorrentInfo[] = allResponse.data || [];
+    const fallbackMatch = all.find(
+      (t: TorrentInfo) => t.hash?.toLowerCase() === normalizedHash
+    );
+    if (fallbackMatch) {
+      return fallbackMatch;
+    }
+
+    throw new Error(`Torrent ${hash} not found`);
+  }
+
+  /**
+   * Resolve a torrent that qBittorrent reports as already existing (HTTP 409).
+   * Returns the info_hash if the torrent can be located (re-link to existing);
+   * otherwise throws a clear, actionable error.
+   */
+  private async resolveExistingTorrent(infoHash: string, source: string): Promise<string> {
+    try {
+      await this.getTorrent(infoHash);
+      logger.info(` Torrent ${infoHash} already exists in qBittorrent — re-linking to existing torrent`);
+      return infoHash;
+    } catch {
+      throw new Error(
+        `qBittorrent reports this ${source} already exists (HTTP 409) but it could not be found in the client. ` +
+        `It may be in an errored or hidden state — remove it from qBittorrent and retry.`
+      );
     }
   }
 

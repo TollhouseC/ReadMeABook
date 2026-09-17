@@ -81,11 +81,71 @@ export async function processRetryMissingTorrents(payload: RetryMissingTorrentsP
 
     logger.info(`Triggered ${triggered}/${requests.length} search jobs`);
 
+    // Recover requests stranded mid-download. The download monitor bumps updatedAt
+    // on every poll (at most every 5 min), so a 'downloading' request untouched for
+    // >2h means the monitor job died (server restart, lost job) and it will never
+    // complete. Re-queue a fresh search so it self-heals.
+    // Note: 'processing' is intentionally excluded — chapter-merging a long audiobook
+    // can legitimately run for hours without an updatedAt bump, and re-queuing it
+    // would interrupt a valid in-progress merge.
+    const STUCK_DOWNLOAD_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
+    const stuckCutoff = new Date(Date.now() - STUCK_DOWNLOAD_THRESHOLD_MS);
+
+    const stuckRequests = await prisma.request.findMany({
+      where: {
+        status: 'downloading',
+        deletedAt: null,
+        updatedAt: { lt: stuckCutoff },
+      },
+      include: { audiobook: true },
+      take: 50,
+    });
+
+    logger.info(`Found ${stuckRequests.length} requests stuck in 'downloading'`);
+
+    let stuckRequeued = 0;
+    for (const request of stuckRequests) {
+      try {
+        // Reset to awaiting_search so state is consistent before re-triggering
+        await prisma.request.update({
+          where: { id: request.id },
+          data: { status: 'awaiting_search', updatedAt: new Date() },
+        });
+
+        if (request.type === 'ebook') {
+          await jobQueue.addSearchEbookJob(request.id, {
+            id: request.audiobook.id,
+            title: request.audiobook.title,
+            author: request.audiobook.author,
+            asin: request.audiobook.audibleAsin || undefined,
+          });
+        } else {
+          await jobQueue.addSearchJob(request.id, {
+            id: request.audiobook.id,
+            title: request.audiobook.title,
+            author: request.audiobook.author,
+            asin: request.audiobook.audibleAsin || undefined,
+          });
+        }
+        stuckRequeued++;
+        logger.info(`Re-queued stuck 'downloading' ${request.type} request ${request.id}: ${request.audiobook.title}`);
+      } catch (error) {
+        logger.error(`Failed to re-queue stuck request ${request.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    if (stuckRequeued > 0) {
+      logger.info(`Re-queued ${stuckRequeued} stuck 'downloading' request(s)`);
+    }
+
     return {
       success: true,
       message: 'Retry missing torrents completed',
       totalRequests: requests.length,
       triggered,
+      stuckRequeued,
     };
   } catch (error) {
     logger.error(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
