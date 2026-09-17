@@ -29,6 +29,7 @@ export interface RequestActionsDropdownProps {
   onManualSearch: (requestId: string) => Promise<void>;
   onCancel: (requestId: string) => Promise<void>;
   onRetryDownload?: (requestId: string) => Promise<void>;
+  onReset?: (requestId: string) => Promise<void>;
   onViewDetails?: (asin: string) => void;
   onFetchEbook?: (requestId: string) => Promise<void>;
   onSearchTermsUpdated?: () => void;
@@ -43,6 +44,7 @@ export function RequestActionsDropdown({
   onManualSearch,
   onCancel,
   onRetryDownload,
+  onReset,
   onViewDetails,
   onFetchEbook,
   onSearchTermsUpdated,
@@ -66,6 +68,9 @@ export function RequestActionsDropdown({
   const canSearch = ['pending', 'failed', 'awaiting_search'].includes(request.status);
   const canAdjustSearchTerms = ['pending', 'failed', 'awaiting_search', 'searching'].includes(request.status);
   const canRetryDownload = request.status === 'failed' && (request.downloadAttempts ?? 0) > 0 && !!onRetryDownload;
+  // Reset & Re-request: for requests wedged in a state the normal search can't recover
+  // from (files downloaded/available/processing but corrupt or removed from library).
+  const canReset = !!onReset && ['downloading', 'processing', 'downloaded', 'available'].includes(request.status);
   const canCancel = ['pending', 'searching', 'downloading', 'awaiting_search'].includes(request.status);
   const canDelete = true; // Admins can always delete
 
@@ -153,6 +158,18 @@ export function RequestActionsDropdown({
         await onRetryDownload(request.requestId);
       } catch (error) {
         console.error('Failed to retry download:', error);
+      }
+    }
+  };
+
+  const handleReset = async () => {
+    setIsOpen(false);
+    if (!onReset) return;
+    if (window.confirm(`Reset "${request.title}" and re-download it from scratch? This clears its library link and starts a fresh search.`)) {
+      try {
+        await onReset(request.requestId);
+      } catch (error) {
+        console.error('Failed to reset request:', error);
       }
     }
   };
@@ -410,8 +427,32 @@ export function RequestActionsDropdown({
               </button>
             )}
 
+            {/* Reset & Re-request */}
+            {canReset && (
+              <button
+                onClick={handleReset}
+                className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 transition-colors"
+                role="menuitem"
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+                Reset &amp; Re-request
+              </button>
+            )}
+
             {/* Divider if we have search/view/retry actions and other actions */}
-            {(canSearch || canViewSource || canFetchEbook || canRetryDownload) && (canCancel || canDelete) && (
+            {(canSearch || canViewSource || canFetchEbook || canRetryDownload || canReset) && (canCancel || canDelete) && (
               <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
             )}
 
@@ -440,7 +481,7 @@ export function RequestActionsDropdown({
             )}
 
             {/* Divider before delete */}
-            {canDelete && (canSearch || canRetryDownload || canCancel) && (
+            {canDelete && (canSearch || canRetryDownload || canReset || canCancel) && (
               <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
             )}
 

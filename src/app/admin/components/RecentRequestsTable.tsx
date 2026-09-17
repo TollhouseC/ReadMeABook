@@ -446,6 +446,29 @@ export function RecentRequestsTable({ ebookSidecarEnabled = false, annasArchiveB
     }
   };
 
+  const handleReset = async (requestId: string) => {
+    try {
+      const response = await fetchWithAuth(`/api/admin/requests/${requestId}/reset`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(responseData.message || 'Failed to reset request');
+      }
+
+      toast.success(responseData.message || 'Request reset and re-search started');
+      await mutate(apiUrl);
+    } catch (error) {
+      console.error('[Admin] Failed to reset request:', error);
+      toast.error(`Failed to reset request: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
   const handleRetryDownload = async (requestId: string) => {
     try {
       const response = await fetchWithAuth(`/api/admin/requests/${requestId}/retry-download`, {
@@ -716,6 +739,7 @@ export function RecentRequestsTable({ ebookSidecarEnabled = false, annasArchiveB
                         onManualSearch={handleManualSearch}
                         onCancel={handleCancel}
                         onRetryDownload={handleRetryDownload}
+                        onReset={handleReset}
                         onViewDetails={(asin) => handleViewDetails(asin, request.status)}
                         onFetchEbook={handleFetchEbook}
                         onSearchTermsUpdated={() => mutate(apiUrl)}

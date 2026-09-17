@@ -19,6 +19,21 @@ Allows admins to delete requests from the admin dashboard with smart handling of
 3. **Seeding Awareness** - Keeps torrents seeding until requirements met
 4. **Confirmation Dialog** - Prevents accidental deletions
 5. **Automatic Cleanup** - Scheduled job handles orphaned downloads
+6. **Reset & Re-request** - Un-sticks a request wedged at any status and re-fetches it
+
+## Reset & Re-request (Admin Action)
+
+**Endpoint:** `POST /api/admin/requests/[id]/reset` (admin only)
+**UI:** "Reset & Re-request" item in the request actions dropdown, shown for statuses the normal search can't recover from: `downloading`, `processing`, `downloaded`, `available`. Confirmation-gated.
+
+**What it does:**
+- Clears the audiobook's library linkage (`plexGuid`/`absItemId` → null, audiobook `status` → `requested`)
+- Resets the request (`status` → `pending`, `progress` 0, clears `errorMessage`/`completedAt`, resets `searchAttempts`/`downloadAttempts`/`importAttempts`)
+- Triggers a fresh search (`addSearchJob` / `addSearchEbookJob` by type)
+
+**Use case:** a book whose library copy was removed or corrupted and can no longer progress (stuck showing "Processing"), which `manual-search` can't touch (it only allows `pending`/`failed`/`awaiting_search`).
+
+**Limitation:** if the item still exists in the library backend (Plex/ABS), its ASIN remains in `plex_library`, so the next library scan re-matches the reset request back to `available`. For a corrupt-but-present copy, remove the item from the library backend first, then Reset. (Reset intentionally does not delete `plex_library` rows — the scan would re-add them while the backend item exists.)
 
 ## User Flow
 
