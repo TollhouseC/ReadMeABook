@@ -118,6 +118,15 @@ describe('scrapeSeriesPage', () => {
       });
     });
 
+    it('reads each book\'s series position from the row header', async () => {
+      mockPage(NEW_LAYOUT_HTML);
+      const { scrapeSeriesPage } = await import('@/lib/integrations/audible-series');
+
+      const detail = await scrapeSeriesPage('B0CKC6CJNL');
+
+      expect(detail!.books.map(b => b.seriesPart)).toEqual(['1', '2', '3']);
+    });
+
     it('joins multiple narrators', async () => {
       mockPage(NEW_LAYOUT_HTML);
       const { scrapeSeriesPage } = await import('@/lib/integrations/audible-series');
@@ -164,7 +173,26 @@ describe('scrapeSeriesPage', () => {
         author: 'Will Wight',
         narrator: 'Travis Baldree',
         durationMinutes: 500,
+        seriesPart: '1',
       });
+    });
+  });
+
+  describe('parseSeriesPosition', () => {
+    it('parses short position labels, including decimals and other languages', async () => {
+      const { parseSeriesPosition } = await import('@/lib/integrations/audible-series-rows');
+      expect(parseSeriesPosition('Book 1')).toBe('1');
+      expect(parseSeriesPosition('Book 10')).toBe('10');
+      expect(parseSeriesPosition('Buch 2,5')).toBe('2.5');
+      expect(parseSeriesPosition('Book 0.5')).toBe('0.5');
+    });
+
+    it('ignores ranges, missing labels, and long text', async () => {
+      const { parseSeriesPosition } = await import('@/lib/integrations/audible-series-rows');
+      expect(parseSeriesPosition('Books 1-3')).toBeUndefined();
+      expect(parseSeriesPosition('')).toBeUndefined();
+      expect(parseSeriesPosition(undefined)).toBeUndefined();
+      expect(parseSeriesPosition('A very long heading that is clearly a title 2')).toBeUndefined();
     });
   });
 

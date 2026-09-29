@@ -242,6 +242,13 @@ type TorrentState =
    - Duplicate/re-link paths now return qBittorrent's canonical `hash` (torrent ID) so downstream monitoring/ops use an ID qBit resolves natively
    - `addMagnetLink()`/`addTorrentFile()` catch HTTP 409 and re-link to the existing torrent instead of failing
    - If a 409 occurs and the torrent still can't be located, a clear actionable error is thrown ("remove it from qBittorrent and retry") instead of the generic "Failed to add torrent"
+**16. qBittorrent 5 endpoint renames** - `/torrents/pause` and `/torrents/resume` were renamed to `/torrents/stop` and `/torrents/start` in qBittorrent 5. `pauseTorrent()`/`resumeTorrent()` now try the v4 endpoint and fall back to the v5 name on 404.
+
+## Pack Support (series/author packs)
+- `addTorrent(url, { stopCondition: 'MetadataReceived' })` — qBittorrent ≥4.5 fetches a magnet's file list then stops before downloading data (older versions ignore it and start downloading until priorities are set). Used to inspect packs.
+- `setFilePriority(hash, fileIndexes, priority)` — `POST /torrents/filePrio` (`id` = pipe-separated indexes; 0 = skip, 1 = normal). Used to download only the requested series' books.
+- `getFiles(hash)` returns `{ name, size, progress, priority, index }` (names include the torrent root folder).
+- See [features/series-packs.md](../features/series-packs.md).
 
 **15. Missing qBittorrent torrent states** - Monitor never detected completion for force-resumed torrents (`forcedDL`/`forcedUP`), causing infinite polling at 100%. Also missing metadata states (`metaDL`/`forcedMetaDL`), qBittorrent v5.x renamed states (`stoppedDL`/`stoppedUP`), and utility states (`checkingResumeData`/`moving`). Fixed by:
    - Adding all 8 missing states to `TorrentState` type union

@@ -80,6 +80,19 @@ function joinNames(people: ProductRowPerson[] | undefined): string {
 }
 
 /**
+ * Parse a series position from a short label like "Book 1", "Buch 2.5", "Book 10".
+ * Returns undefined for ranges ("Books 1-3", omnibus) and anything that isn't a
+ * short position label.
+ */
+export function parseSeriesPosition(label?: string | null): string | undefined {
+  const text = (label || '').trim();
+  if (!text || text.length > 25) return undefined;
+  if (/\d+\s*[-–—]\s*\d+/.test(text)) return undefined;
+  const match = text.match(/(\d+(?:[.,]\d+)?)/);
+  return match ? match[1].replace(',', '.') : undefined;
+}
+
+/**
  * Parse all books rendered as <adbl-product-row> on a series page.
  * Returns an empty array for legacy-layout pages (no rows present).
  */
@@ -130,6 +143,7 @@ export function parseProductRows(
       durationMinutes: parseRuntime(metadata?.duration || '', langConfig),
       releaseDate: metadata?.releaseDate || undefined,
       language: metadata?.language || undefined,
+      seriesPart: parseSeriesPosition($row.attr('series-header')),
     });
   });
 

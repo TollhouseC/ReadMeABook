@@ -593,6 +593,64 @@ describe('QBittorrentService', () => {
     expect(clientMock.post).not.toHaveBeenCalled();
   });
 
+  it('sends stopCondition so a pack can be inspected before downloading', async () => {
+    const service = new QBittorrentService('http://qb', 'user', 'pass');
+    (service as any).cookie = 'SID=stop';
+    vi.spyOn(service as any, 'ensureCategory').mockResolvedValue(undefined);
+    vi.spyOn(service as any, 'getTorrent').mockRejectedValue(new Error('Torrent not found'));
+    clientMock.post.mockResolvedValueOnce({ data: 'Ok.' });
+
+    await service.addTorrent('magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567', {
+      stopCondition: 'MetadataReceived',
+    });
+
+    const form = clientMock.post.mock.calls[0][1] as URLSearchParams;
+    expect(form.get('stopCondition')).toBe('MetadataReceived');
+  });
+
+  it('sets file priorities with pipe-separated file indexes', async () => {
+    const service = new QBittorrentService('http://qb', 'user', 'pass');
+    (service as any).cookie = 'SID=prio';
+    clientMock.post.mockResolvedValueOnce({ data: '' });
+
+    await service.setFilePriority('hash-p', [1, 4, 7], 0);
+
+    expect(clientMock.post).toHaveBeenCalledWith('/torrents/filePrio', expect.any(URLSearchParams), expect.anything());
+    const form = clientMock.post.mock.calls[0][1] as URLSearchParams;
+    expect(Object.fromEntries(form)).toEqual({ hash: 'hash-p', id: '1|4|7', priority: '0' });
+  });
+
+  it('skips the call when there are no files to change', async () => {
+    const service = new QBittorrentService('http://qb', 'user', 'pass');
+    (service as any).cookie = 'SID=prio-none';
+
+    await service.setFilePriority('hash-p', [], 0);
+
+    expect(clientMock.post).not.toHaveBeenCalled();
+  });
+
+  it('resumes via /torrents/start on qBittorrent 5 (resume endpoint 404s)', async () => {
+    const service = new QBittorrentService('http://qb', 'user', 'pass');
+    (service as any).cookie = 'SID=v5';
+    clientMock.post
+      .mockRejectedValueOnce({ isAxiosError: true, response: { status: 404 } })
+      .mockResolvedValueOnce({ data: '' });
+
+    await service.resumeTorrent('hash-v5');
+
+    expect(clientMock.post.mock.calls.map(c => c[0])).toEqual(['/torrents/resume', '/torrents/start']);
+  });
+
+  it('resumes via /torrents/resume on qBittorrent 4', async () => {
+    const service = new QBittorrentService('http://qb', 'user', 'pass');
+    (service as any).cookie = 'SID=v4';
+    clientMock.post.mockResolvedValueOnce({ data: '' });
+
+    await service.resumeTorrent('hash-v4');
+
+    expect(clientMock.post.mock.calls.map(c => c[0])).toEqual(['/torrents/resume']);
+  });
+
   it('re-links to the existing torrent when qBittorrent answers 409 on add', async () => {
     const service = new QBittorrentService('http://qb', 'user', 'pass');
     (service as any).cookie = 'SID=409';

@@ -143,6 +143,97 @@ describe('file organizer', () => {
     expect(metadataMock.tagMultipleFiles).not.toHaveBeenCalled();
   });
 
+  describe('importing one book from a multi-book pack (selectedFiles)', () => {
+    function setupPack(organizer: any, discovered?: { audioFiles: string[]; coverFile?: string }) {
+      configState.values.set('metadata_tagging_enabled', 'false');
+      configState.values.set('ebook_sidecar_enabled', 'false');
+      // Default: book 1 is m4b, book 3 is mp3 — the kind of mixed pack that used to break
+      vi.spyOn(organizer, 'findAudiobookFiles').mockResolvedValue({
+        audioFiles: discovered?.audioFiles ?? ['01 - Final Empire/a.m4b', '03 - Hero of Ages/c1.mp3', '03 - Hero of Ages/c2.mp3'],
+        coverFile: discovered ? discovered.coverFile : '01 - Final Empire/cover.jpg',
+        isFile: false,
+      });
+      fsMock.access.mockResolvedValue(undefined);
+      fsMock.mkdir.mockResolvedValue(undefined);
+      copyFileMock.copyFile.mockResolvedValue(undefined);
+      fsMock.chmod.mockResolvedValue(undefined);
+    }
+
+    it('selects the book before the mixed-format dedup, so an mp3 book in an m4b-heavy pack still imports', async () => {
+      const organizer = new FileOrganizer('/media', '/tmp');
+      setupPack(organizer);
+
+      const result = await organizer.organize(
+        '/downloads/Mistborn Complete',
+        { title: 'The Hero of Ages', author: 'Brandon Sanderson' },
+        '{author}/{title}',
+        undefined,
+        undefined,
+        ['03 - Hero of Ages/c1.mp3', '03 - Hero of Ages/c2.mp3']
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.audioFiles.map(f => path.basename(f)).sort()).toEqual(['c1.mp3', 'c2.mp3']);
+    });
+
+    it('matches selections regardless of path separator style', async () => {
+      const organizer = new FileOrganizer('/media', '/tmp');
+      setupPack(organizer);
+
+      const result = await organizer.organize(
+        '/downloads/Mistborn Complete',
+        { title: 'The Hero of Ages', author: 'Brandon Sanderson' },
+        '{author}/{title}',
+        undefined,
+        undefined,
+        ['03 - Hero of Ages\\c1.mp3', '03 - Hero of Ages\\c2.mp3']
+      );
+
+      expect(result.audioFiles).toHaveLength(2);
+    });
+
+    it("ignores another book's local cover in the pack", async () => {
+      const organizer = new FileOrganizer('/media', '/tmp');
+      // Single format, so the import succeeds and the cover choice is what's tested
+      setupPack(organizer, {
+        audioFiles: ['01 - Final Empire/a.mp3', '03 - Hero of Ages/c1.mp3'],
+        coverFile: '01 - Final Empire/cover.jpg',
+      });
+
+      const result = await organizer.organize(
+        '/downloads/Mistborn Complete',
+        { title: 'The Hero of Ages', author: 'Brandon Sanderson' },
+        '{author}/{title}',
+        undefined,
+        undefined,
+        ['03 - Hero of Ages/c1.mp3']
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.coverArtFile).toBeUndefined();
+    });
+
+    it('keeps a local cover that sits next to the selected book', async () => {
+      const organizer = new FileOrganizer('/media', '/tmp');
+      setupPack(organizer, {
+        audioFiles: ['01 - Final Empire/a.mp3', '03 - Hero of Ages/c1.mp3'],
+        coverFile: '03 - Hero of Ages/cover.jpg',
+      });
+
+      const result = await organizer.organize(
+        '/downloads/Mistborn Complete',
+        { title: 'The Hero of Ages', author: 'Brandon Sanderson' },
+        '{author}/{title}',
+        undefined,
+        undefined,
+        ['03 - Hero of Ages/c1.mp3']
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.coverArtFile).toBeDefined();
+    });
+  });
+
   it('puts an alternate version in its own series and title folder', async () => {
     configState.values.set('metadata_tagging_enabled', 'false');
     configState.values.set('ebook_sidecar_enabled', 'false');

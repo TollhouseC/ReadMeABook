@@ -32,6 +32,12 @@ export interface AddTorrentOptions {
   tags?: string[];
   paused?: boolean;
   skipChecking?: boolean;
+  /**
+   * Stop the torrent automatically once this point is reached (qBittorrent >= 4.5;
+   * ignored by older versions). 'MetadataReceived' fetches a magnet's file list and
+   * stops before downloading data — used to inspect packs before committing.
+   */
+  stopCondition?: 'MetadataReceived' | 'FilesChecked';
 }
 
 export interface TorrentInfo {
@@ -322,6 +328,9 @@ export class QBittorrentService implements IDownloadClient {
     if (options?.tags) {
       form.append('tags', options.tags.join(','));
     }
+    if (options?.stopCondition) {
+      form.append('stopCondition', options.stopCondition);
+    }
 
     logger.info('[QBittorrent] Uploading magnet link...');
 
@@ -478,6 +487,9 @@ export class QBittorrentService implements IDownloadClient {
 
     if (options?.tags) {
       formData.append('tags', options.tags.join(','));
+    }
+    if (options?.stopCondition) {
+      formData.append('stopCondition', options.stopCondition);
     }
 
     logger.info('[QBittorrent] Uploading .torrent file content...');
@@ -689,22 +701,9 @@ export class QBittorrentService implements IDownloadClient {
    * Pause torrent
    */
   async pauseTorrent(hash: string): Promise<void> {
-    if (!this.cookie) {
-      await this.login();
-    }
-
     try {
-      await this.client.post(
-        '/torrents/pause',
-        new URLSearchParams({ hashes: hash }),
-        {
-          headers: {
-            Cookie: this.cookie,
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-        }
-      );
-
+      // qBittorrent 5 renamed /torrents/pause to /torrents/stop
+      await this.postTorrentAction('/torrents/pause', '/torrents/stop', { hashes: hash });
       logger.info(`Paused torrent: ${hash}`);
     } catch (error) {
       logger.error('Failed to pause torrent', { error: error instanceof Error ? error.message : String(error) });
@@ -713,17 +712,33 @@ export class QBittorrentService implements IDownloadClient {
   }
 
   /**
-   * Resume torrent
+   * Resume (start) torrent — also restarts a torrent stopped by a stopCondition
    */
   async resumeTorrent(hash: string): Promise<void> {
+    try {
+      // qBittorrent 5 renamed /torrents/resume to /torrents/start
+      await this.postTorrentAction('/torrents/resume', '/torrents/start', { hashes: hash });
+      logger.info(`Resumed torrent: ${hash}`);
+    } catch (error) {
+      logger.error('Failed to resume torrent', { error: error instanceof Error ? error.message : String(error) });
+      throw new Error('Failed to resume torrent');
+    }
+  }
+
+  /**
+   * Set download priority for specific files in a torrent.
+   * Priority 0 = do not download, 1 = normal, 6 = high, 7 = maximal.
+   */
+  async setFilePriority(hash: string, fileIndexes: number[], priority: 0 | 1 | 6 | 7): Promise<void> {
+    if (fileIndexes.length === 0) return;
     if (!this.cookie) {
       await this.login();
     }
 
     try {
       await this.client.post(
-        '/torrents/resume',
-        new URLSearchParams({ hashes: hash }),
+        '/torrents/filePrio',
+        new URLSearchParams({ hash, id: fileIndexes.join('|'), priority: String(priority) }),
         {
           headers: {
             Cookie: this.cookie,
@@ -731,11 +746,35 @@ export class QBittorrentService implements IDownloadClient {
           },
         }
       );
-
-      logger.info(`Resumed torrent: ${hash}`);
+      logger.info(`Set priority ${priority} on ${fileIndexes.length} file(s) of torrent ${hash}`);
     } catch (error) {
-      logger.error('Failed to resume torrent', { error: error instanceof Error ? error.message : String(error) });
-      throw new Error('Failed to resume torrent');
+      logger.error('Failed to set file priority', { error: error instanceof Error ? error.message : String(error) });
+      throw new Error('Failed to set file priority');
+    }
+  }
+
+  /**
+   * POST a torrent action, falling back to the qBittorrent 5 endpoint name when the
+   * qBittorrent 4 name returns 404 (pause→stop, resume→start).
+   */
+  private async postTorrentAction(v4Path: string, v5Path: string, params: Record<string, string>): Promise<void> {
+    if (!this.cookie) {
+      await this.login();
+    }
+    const config = {
+      headers: {
+        Cookie: this.cookie,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+    };
+    try {
+      await this.client.post(v4Path, new URLSearchParams(params), config);
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        await this.client.post(v5Path, new URLSearchParams(params), config);
+        return;
+      }
+      throw error;
     }
   }
 

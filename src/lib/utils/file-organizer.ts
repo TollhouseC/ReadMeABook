@@ -109,6 +109,28 @@ export class FileOrganizer {
       // Find audiobook files
       let { audioFiles, coverFile, isFile } = await this.findAudiobookFiles(downloadPath);
 
+      // Filter to only selected files if specified. This must run BEFORE the format
+      // dedup below: in a multi-book pack, other books may be in a "better" format
+      // (e.g. book 1 m4b, book 3 mp3), and deduping the whole download first would
+      // drop every file of the book being imported. Separators are normalized so
+      // selections work regardless of how paths were produced.
+      if (selectedFiles && selectedFiles.length > 0) {
+        const normalizeSep = (p: string) => p.replace(/\\/g, '/');
+        const selectedSet = new Set(selectedFiles.map(normalizeSep));
+        audioFiles = audioFiles.filter((f) => selectedSet.has(normalizeSep(f)));
+        await logger?.info(`Filtered to ${audioFiles.length} selected files`);
+
+        // A local cover elsewhere in the download (e.g. another book's folder in a pack)
+        // would be the wrong artwork — only keep one next to the selected files, else
+        // fall back to the book's Audible cover.
+        if (coverFile) {
+          const selectedDirs = new Set(audioFiles.map((f) => path.posix.dirname(normalizeSep(f))));
+          if (!selectedDirs.has(path.posix.dirname(normalizeSep(coverFile)))) {
+            coverFile = undefined;
+          }
+        }
+      }
+
       // Deduplicate: when multiple formats are present (e.g. mp3 + m4b = two copies of the same book),
       // keep only the highest-quality format and drop the rest to avoid double storage use.
       const beforeFilterCount = audioFiles.length;
@@ -119,13 +141,6 @@ export class FileOrganizer {
           `Mixed audio formats detected — keeping ${audioFiles.length} ${keptExt} file(s), ` +
           `dropped ${beforeFilterCount - audioFiles.length} file(s) of other format(s)`
         );
-      }
-
-      // Filter to only selected files if specified
-      if (selectedFiles && selectedFiles.length > 0) {
-        const selectedSet = new Set(selectedFiles);
-        audioFiles = audioFiles.filter((f) => selectedSet.has(f));
-        await logger?.info(`Filtered to ${audioFiles.length} selected files`);
       }
 
       if (audioFiles.length === 0) {

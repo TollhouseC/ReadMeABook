@@ -19,7 +19,7 @@ import {
 import { RMABLogger } from '../utils/logger';
 import { parseRuntime } from '../utils/parse-runtime';
 import { randomDelay } from '../utils/scrape-resilience';
-import { parseProductRows } from './audible-series-rows';
+import { parseProductRows, parseSeriesPosition } from './audible-series-rows';
 
 const logger = RMABLogger.create('Audible.Series');
 
@@ -484,6 +484,8 @@ function parseSeriesBooks(
       coverArtUrl,
       rating,
       durationMinutes,
+      // h2 on series pages is the position label ("Book 1")
+      seriesPart: parseSeriesPosition($el.find('h2').first().text()),
     });
   });
 
