@@ -206,8 +206,9 @@ model Audiobook {
   completedAt DateTime? @map("completed_at")
 
   // Relations
-  requests       Request[]
-  reportedIssues ReportedIssue[]
+  requests            Request[]
+  reportedIssues      ReportedIssue[]
+  blacklistedReleases BlacklistedRelease[]
 
   @@index([audibleAsin])
   @@index([plexGuid])
@@ -287,12 +288,17 @@ model DownloadHistory {
   downloadClient   String?   @map("download_client") // qbittorrent, sabnzbd, direct (HTTP download for ebooks)
   downloadClientId String?   @map("download_client_id")
   downloadStatus   String?   @map("download_status")
-  // Status values: queued, downloading, completed, failed, stalled
+  // Status values: queued, downloading, completed, failed, stalled, blacklisted
   downloadError    String?   @map("download_error") @db.Text
   downloadPath     String?   @map("download_path") @db.Text
   startedAt        DateTime? @map("started_at")
   completedAt      DateTime? @map("completed_at")
   createdAt        DateTime  @default(now()) @map("created_at")
+
+  // Stalled-download detection baseline (check_stalled_downloads job, every 24h):
+  // progress fraction (0-1) recorded at the last check, and when it was recorded.
+  stallCheckProgress Float?    @map("stall_check_progress")
+  stallCheckedAt     DateTime? @map("stall_checked_at")
 
   // Relations
   request Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
@@ -304,6 +310,28 @@ model DownloadHistory {
   @@index([nzbId])
   @@index([createdAt(sort: Desc)])
   @@map("download_history")
+}
+
+// Releases excluded from automatic search for a book (e.g. a torrent that stalled
+// for 24h). Scoped to the audiobook rather than the request, because re-requesting
+// deletes the old request (and its download history) but the release is still dead.
+model BlacklistedRelease {
+  id          String   @id @default(uuid())
+  audiobookId String   @map("audiobook_id")
+  title       String   @db.Text // Release title as listed by the indexer
+  indexerName String?  @map("indexer_name")
+  infoHash    String?  @map("info_hash") // Torrent info hash (lowercase), when known
+  releaseUrl  String?  @map("release_url") @db.Text // Indexer page URL / guid
+  sizeBytes   BigInt?  @map("size_bytes")
+  reason      String // 'stalled'
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  audiobook Audiobook @relation(fields: [audiobookId], references: [id], onDelete: Cascade)
+
+  @@index([audiobookId])
+  @@index([infoHash])
+  @@map("blacklisted_releases")
 }
 
 model Configuration {

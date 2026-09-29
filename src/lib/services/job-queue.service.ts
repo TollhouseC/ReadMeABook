@@ -28,6 +28,7 @@ export type JobType =
   | 'monitor_rss_feeds'
   | 'sync_reading_shelves'
   | 'check_watched_lists'
+  | 'check_stalled_downloads'
   | 'send_notification'
   // Ebook-specific job types
   | 'search_ebook'
@@ -106,6 +107,10 @@ export interface RetryFailedImportsPayload extends JobPayload {
 }
 
 export interface CleanupSeededTorrentsPayload extends JobPayload {
+  scheduledJobId?: string;
+}
+
+export interface CheckStalledDownloadsPayload extends JobPayload {
   scheduledJobId?: string;
 }
 
@@ -402,6 +407,12 @@ export class JobQueueService {
       const { processCheckWatchedLists } = await import('../processors/check-watched-lists.processor');
       const payloadWithJobId = await this.ensureJobRecord(job, 'check_watched_lists');
       return await processCheckWatchedLists(payloadWithJobId);
+    });
+
+    this.queue.process('check_stalled_downloads', 1, async (job: BullJob<CheckStalledDownloadsPayload>) => {
+      const { processCheckStalledDownloads } = await import('../processors/check-stalled-downloads.processor');
+      const payloadWithJobId = await this.ensureJobRecord(job, 'check_stalled_downloads');
+      return await processCheckStalledDownloads(payloadWithJobId);
     });
 
     // Send notification processor
@@ -767,6 +778,21 @@ export class JobQueueService {
       } as CleanupSeededTorrentsPayload,
       {
         priority: 10,
+      }
+    );
+  }
+
+  /**
+   * Add check stalled downloads job (blacklist + re-search downloads with no progress in 24h)
+   */
+  async addCheckStalledDownloadsJob(scheduledJobId?: string): Promise<string> {
+    return await this.addJob(
+      'check_stalled_downloads',
+      {
+        scheduledJobId,
+      } as CheckStalledDownloadsPayload,
+      {
+        priority: 7,
       }
     );
   }

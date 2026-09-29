@@ -190,7 +190,8 @@ describe('processScanPlex', () => {
     prismaMock.plexLibrary.create.mockResolvedValue({ id: 'new-id', plexGuid: 'guid-1' });
     prismaMock.plexLibrary.findMany
       .mockResolvedValueOnce([{ id: 'stale-1', plexGuid: 'stale-guid', title: 'Stale Book' }])
-      .mockResolvedValueOnce([{ plexGuid: 'guid-1' }]);
+      .mockResolvedValueOnce([{ plexGuid: 'guid-1' }])
+      .mockResolvedValueOnce([]); // step 5c: library ASINs
     prismaMock.plexLibrary.delete.mockResolvedValue({});
     prismaMock.audiobook.findMany
       .mockResolvedValueOnce([
@@ -234,11 +235,65 @@ describe('processScanPlex', () => {
         data: expect.objectContaining({ plexGuid: null, absItemId: null }),
       })
     );
-    expect(prismaMock.request.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ status: 'downloaded' }),
-      })
+    // Removed from library → cancelled (re-requestable), not the old 'downloaded' dead-end
+    for (const id of ['req-1', 'req-2']) {
+      expect(prismaMock.request.update).toHaveBeenCalledWith({
+        where: { id },
+        data: expect.objectContaining({ status: 'cancelled', errorMessage: 'Removed from library' }),
+      });
+    }
+    expect(prismaMock.request.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'downloaded' }) })
     );
+  });
+
+  it('cancels requests stuck at downloaded whose book is no longer in the library', async () => {
+    configMock.getBackendMode.mockResolvedValue('plex');
+    configMock.getPlexConfig.mockResolvedValue({
+      serverUrl: 'http://plex',
+      authToken: 'token',
+      libraryId: 'lib-1',
+      machineIdentifier: 'machine',
+    });
+    libraryServiceMock.getCoverCachingParams.mockResolvedValue({
+      backendBaseUrl: 'http://plex',
+      authToken: 'token',
+      backendMode: 'plex',
+    });
+    // Empty scan → stale cleanup is skipped by its safety guard
+    libraryServiceMock.getLibraryItems.mockResolvedValue([]);
+
+    prismaMock.plexLibrary.findMany
+      .mockResolvedValueOnce([]) // step 5b: valid guids
+      .mockResolvedValueOnce([{ asin: 'B0INLIBRARY' }]); // step 5c: library ASINs
+    prismaMock.audiobook.findMany.mockResolvedValueOnce([]); // step 5b: no orphans
+    prismaMock.request.findMany
+      .mockResolvedValueOnce([
+        { id: 'req-gone', audiobook: { title: 'Gone Book', audibleAsin: 'B0GONEBOOK', plexGuid: null, absItemId: null } },
+        { id: 'req-present', audiobook: { title: 'Present Book', audibleAsin: 'b0inlibrary', plexGuid: null, absItemId: null } },
+        { id: 'req-linked', audiobook: { title: 'Linked Book', audibleAsin: 'B0LINKED01', plexGuid: 'guid-x', absItemId: null } },
+      ])
+      .mockResolvedValueOnce([]); // step 6: matchable requests
+    prismaMock.request.update.mockResolvedValue({});
+
+    const { processScanPlex } = await import('@/lib/processors/scan-plex.processor');
+    const result = await processScanPlex({ jobId: 'job-5c' });
+
+    // Only stale (>48h), unlinked, not-in-library 'downloaded' requests are queried
+    expect(prismaMock.request.findMany).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      where: expect.objectContaining({
+        type: 'audiobook',
+        status: 'downloaded',
+        deletedAt: null,
+        updatedAt: { lt: expect.any(Date) },
+      }),
+    }));
+    expect(prismaMock.request.update).toHaveBeenCalledTimes(1);
+    expect(prismaMock.request.update).toHaveBeenCalledWith({
+      where: { id: 'req-gone' },
+      data: expect.objectContaining({ status: 'cancelled', errorMessage: 'Removed from library' }),
+    });
+    expect(result.stuckDownloadedCancelled).toBe(1);
   });
 
   it('matches audiobookshelf requests without re-triggering metadata match', async () => {

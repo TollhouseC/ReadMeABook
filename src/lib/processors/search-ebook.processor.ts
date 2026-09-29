@@ -15,6 +15,7 @@ import { getProwlarrService } from '../integrations/prowlarr.service';
 import { rankEbookTorrents, RankedEbookTorrent } from '../utils/ranking-algorithm';
 import { groupIndexersByCategories, getGroupDescription } from '../utils/indexer-grouping';
 import { getLanguageForRegion } from '../constants/language-config';
+import { filterBlacklistedResults } from '../utils/release-blacklist';
 import type { AudibleRegion } from '../types/audible';
 
 // Import ebook scraper functions for Anna's Archive
@@ -265,7 +266,7 @@ async function searchAnnasArchive(
  */
 async function searchIndexers(
   requestId: string,
-  audiobook: { title: string; author: string },
+  audiobook: { id?: string; title: string; author: string },
   preferredFormat: string,
   logger: RMABLogger
 ): Promise<RankedEbookTorrent | null> {
@@ -343,13 +344,20 @@ async function searchIndexers(
 
   logger.info(`Found ${allResults.length} total results from ${groups.length} group${groups.length > 1 ? 's' : ''}`);
 
-  if (allResults.length === 0) {
+  // Exclude releases blacklisted for this book (e.g. torrents that stalled for 24h)
+  const { results: candidateResults, removed: blacklistedCount } =
+    await filterBlacklistedResults(audiobook.id, allResults);
+  if (blacklistedCount > 0) {
+    logger.info(`Excluded ${blacklistedCount} blacklisted release(s)`);
+  }
+
+  if (candidateResults.length === 0) {
     return null;
   }
 
   // Log filter info (ebooks > 20MB will be filtered)
-  const preFilterCount = allResults.length;
-  const aboveThreshold = allResults.filter(r => (r.size / (1024 * 1024)) > 20);
+  const preFilterCount = candidateResults.length;
+  const aboveThreshold = candidateResults.filter(r => (r.size / (1024 * 1024)) > 20);
   if (aboveThreshold.length > 0) {
     logger.info(`Will filter ${aboveThreshold.length} results > 20 MB (too large for ebooks)`);
   }
@@ -360,7 +368,7 @@ async function searchIndexers(
 
   // Rank results with ebook-specific scoring
   // This filters out > 20MB and uses inverted size scoring
-  const rankedResults = rankEbookTorrents(allResults, {
+  const rankedResults = rankEbookTorrents(candidateResults, {
     title: audiobook.title,
     author: audiobook.author,
     preferredFormat,

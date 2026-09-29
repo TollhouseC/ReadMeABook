@@ -282,6 +282,7 @@ export default function AdminLogsPage() {
               <option value="retry_failed_imports">Retry Failed Imports</option>
               <option value="cleanup_seeded_torrents">Cleanup Seeded Torrents</option>
               <option value="monitor_rss_feeds">Monitor RSS Feeds</option>
+              <option value="check_stalled_downloads">Check Stalled Downloads</option>
             </select>
           </div>
         </div>

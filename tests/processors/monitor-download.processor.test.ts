@@ -54,6 +54,24 @@ describe('processMonitorDownload', () => {
     jobQueueMock.addNotificationJob.mockResolvedValue(undefined);
   });
 
+  it('stops quietly when the download was blacklisted as stalled', async () => {
+    prismaMock.downloadHistory.findUnique.mockResolvedValueOnce({ downloadStatus: 'blacklisted' });
+
+    const { processMonitorDownload } = await import('@/lib/processors/monitor-download.processor');
+    const result = await processMonitorDownload({
+      requestId: 'req-bl',
+      downloadHistoryId: 'dh-bl',
+      downloadClientId: 'hash-bl',
+      downloadClient: 'qbittorrent',
+      jobId: 'job-bl',
+    });
+
+    expect(result).toMatchObject({ success: true, completed: true });
+    expect(downloadClientManagerMock.getClientServiceForProtocol).not.toHaveBeenCalled();
+    expect(jobQueueMock.addMonitorJob).not.toHaveBeenCalled();
+    expect(prismaMock.request.update).not.toHaveBeenCalled();
+  });
+
   it('queues organize job when qBittorrent download completes', async () => {
     const qbtClientMock = {
       clientType: 'qbittorrent',

@@ -565,16 +565,59 @@ describe('QBittorrentService', () => {
     await expect(service.addTorrent('')).rejects.toThrow('Invalid download URL');
   });
 
-  it('skips adding duplicate magnet links', async () => {
+  it('skips adding duplicate magnet links and returns the existing torrent id', async () => {
     const service = new QBittorrentService('http://qb', 'user', 'pass');
     (service as any).cookie = 'SID=dup';
     vi.spyOn(service as any, 'ensureCategory').mockResolvedValue(undefined);
-    vi.spyOn(service as any, 'getTorrent').mockResolvedValue({ hash: 'existing' });
+    vi.spyOn(service as any, 'getTorrent').mockResolvedValue({ hash: '0123456789abcdef0123456789abcdef01234567' });
 
     const hash = await service.addTorrent('magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567');
 
     expect(hash).toBe('0123456789abcdef0123456789abcdef01234567');
     expect(clientMock.post).not.toHaveBeenCalled();
+  });
+
+  it('returns the canonical torrent id when a duplicate is a hybrid v1/v2 torrent', async () => {
+    // Hybrid torrents: qBittorrent's `hash` is v2-derived; the magnet's btih is the v1 hash
+    const service = new QBittorrentService('http://qb', 'user', 'pass');
+    (service as any).cookie = 'SID=hybrid';
+    vi.spyOn(service as any, 'ensureCategory').mockResolvedValue(undefined);
+    vi.spyOn(service as any, 'getTorrent').mockResolvedValue({
+      hash: 'b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2',
+      infohash_v1: 'a280808f236cda306eee9f5e0f0592ca3e1eba2e',
+    });
+
+    const hash = await service.addTorrent('magnet:?xt=urn:btih:A280808F236CDA306EEE9F5E0F0592CA3E1EBA2E');
+
+    expect(hash).toBe('b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2');
+    expect(clientMock.post).not.toHaveBeenCalled();
+  });
+
+  it('re-links to the existing torrent when qBittorrent answers 409 on add', async () => {
+    const service = new QBittorrentService('http://qb', 'user', 'pass');
+    (service as any).cookie = 'SID=409';
+    vi.spyOn(service as any, 'ensureCategory').mockResolvedValue(undefined);
+    // Pre-check misses it, but after the 409 the lookup finds it
+    vi.spyOn(service as any, 'getTorrent')
+      .mockRejectedValueOnce(new Error('Torrent not found'))
+      .mockResolvedValueOnce({ hash: 'b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2' });
+    clientMock.post.mockRejectedValueOnce({ isAxiosError: true, response: { status: 409 } });
+
+    const hash = await service.addTorrent('magnet:?xt=urn:btih:a280808f236cda306eee9f5e0f0592ca3e1eba2e');
+
+    expect(hash).toBe('b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2');
+  });
+
+  it('fails when qBittorrent answers 409 but the torrent cannot be located', async () => {
+    const service = new QBittorrentService('http://qb', 'user', 'pass');
+    (service as any).cookie = 'SID=409-missing';
+    vi.spyOn(service as any, 'ensureCategory').mockResolvedValue(undefined);
+    vi.spyOn(service as any, 'getTorrent').mockRejectedValue(new Error('Torrent not found'));
+    clientMock.post.mockRejectedValueOnce({ isAxiosError: true, response: { status: 409 } });
+
+    await expect(
+      service.addTorrent('magnet:?xt=urn:btih:a280808f236cda306eee9f5e0f0592ca3e1eba2e')
+    ).rejects.toThrow('Failed to add torrent to qBittorrent');
   });
 
   it('adds magnet links when not already present', async () => {
@@ -966,28 +1009,61 @@ describe('QBittorrentService', () => {
     await expect(service.getFiles('hash-1')).rejects.toThrow('Failed to get torrent files');
   });
 
-  it('throws when torrent is not found', async () => {
+  it('throws when torrent is not found (filtered query and full-list fallback both miss)', async () => {
     const service = new QBittorrentService('http://qb', 'user', 'pass');
     (service as any).cookie = 'SID=missing';
-    clientMock.get.mockResolvedValueOnce({ data: [] });
+    clientMock.get
+      .mockResolvedValueOnce({ data: [] }) // hashes= filter
+      .mockResolvedValueOnce({ data: [] }); // full-list fallback
 
     await expect(service.getTorrent('hash-404')).rejects.toThrow('Torrent hash-404 not found');
+    expect(clientMock.get).toHaveBeenCalledTimes(2);
   });
 
   it('ignores unrelated torrents returned by RDTClient-like clients that ignore hash filter', async () => {
     const service = new QBittorrentService('http://qb', 'user', 'pass');
     (service as any).cookie = 'SID=rdtclient';
     // RDTClient ignores the hashes param and returns all torrents
-    clientMock.get.mockResolvedValueOnce({
+    const unrelated = {
       data: [
         { hash: 'aaaa1111bbbb2222cccc3333dddd4444eeee5555', name: 'Other Book' },
         { hash: 'ffff6666aaaa7777bbbb8888cccc9999dddd0000', name: 'Another Book' },
       ],
-    });
+    };
+    clientMock.get.mockResolvedValueOnce(unrelated).mockResolvedValueOnce(unrelated);
 
     await expect(
       service.getTorrent('0f54898dc1b8e49d96e32827377f651ea6c935af')
     ).rejects.toThrow('Torrent 0f54898dc1b8e49d96e32827377f651ea6c935af not found');
+  });
+
+  it('falls back to the full torrent list when the hashes= filter returns nothing', async () => {
+    const service = new QBittorrentService('http://qb', 'user', 'pass');
+    (service as any).cookie = 'SID=fallback';
+    clientMock.get
+      .mockResolvedValueOnce({ data: [] })
+      .mockResolvedValueOnce({ data: [{ hash: '0f54898dc1b8e49d96e32827377f651ea6c935af', name: 'Book' }] });
+
+    const torrent = await service.getTorrent('0f54898dc1b8e49d96e32827377f651ea6c935af');
+
+    expect(torrent.name).toBe('Book');
+    expect(clientMock.get).toHaveBeenLastCalledWith('/torrents/info', expect.not.objectContaining({ params: expect.anything() }));
+  });
+
+  it('finds a hybrid v1/v2 torrent by its v1 info hash', async () => {
+    const service = new QBittorrentService('http://qb', 'user', 'pass');
+    (service as any).cookie = 'SID=hybrid-lookup';
+    const hybrid = {
+      hash: 'b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2',
+      infohash_v1: 'a280808f236cda306eee9f5e0f0592ca3e1eba2e',
+      infohash_v2: 'b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2',
+      name: 'Wild Side',
+    };
+    clientMock.get.mockResolvedValueOnce({ data: [] }).mockResolvedValueOnce({ data: [hybrid] });
+
+    const torrent = await service.getTorrent('A280808F236CDA306EEE9F5E0F0592CA3E1EBA2E');
+
+    expect(torrent.hash).toBe('b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2');
   });
 
   it('finds the correct torrent when RDTClient returns all torrents including the match', async () => {

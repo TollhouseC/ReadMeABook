@@ -10,7 +10,7 @@ import { RMABLogger } from '../utils/logger';
 
 const logger = RMABLogger.create('Scheduler');
 
-export type ScheduledJobType = 'plex_library_scan' | 'plex_recently_added_check' | 'audible_refresh' | 'retry_missing_torrents' | 'retry_failed_imports' | 'cleanup_seeded_torrents' | 'monitor_rss_feeds' | 'sync_reading_shelves' | 'check_watched_lists';
+export type ScheduledJobType = 'plex_library_scan' | 'plex_recently_added_check' | 'audible_refresh' | 'retry_missing_torrents' | 'retry_failed_imports' | 'cleanup_seeded_torrents' | 'monitor_rss_feeds' | 'sync_reading_shelves' | 'check_watched_lists' | 'check_stalled_downloads';
 
 export interface ScheduledJob {
   id: string;
@@ -140,6 +140,13 @@ export class SchedulerService {
         name: 'Check Watched Lists',
         type: 'check_watched_lists' as ScheduledJobType,
         schedule: '0 0 * * *', // Daily at midnight (every 24 hours)
+        enabled: true, // Enable by default
+        payload: {},
+      },
+      {
+        name: 'Check Stalled Downloads',
+        type: 'check_stalled_downloads' as ScheduledJobType,
+        schedule: '0 12 * * *', // Daily at noon — offset from the midnight jobs
         enabled: true, // Enable by default
         payload: {},
       },
@@ -390,6 +397,9 @@ export class SchedulerService {
         break;
       case 'check_watched_lists':
         bullJobId = await this.triggerCheckWatchedLists(job);
+        break;
+      case 'check_stalled_downloads':
+        bullJobId = await this.triggerCheckStalledDownloads(job);
         break;
       default:
         throw new Error(`Unknown job type: ${job.type}`);
@@ -657,6 +667,13 @@ export class SchedulerService {
    */
   private async triggerCleanupSeededTorrents(job: any): Promise<string> {
     return await this.jobQueue.addCleanupSeededTorrentsJob(job.id);
+  }
+
+  /**
+   * Trigger stalled download check (blacklist + re-search downloads with no progress in 24h)
+   */
+  private async triggerCheckStalledDownloads(job: any): Promise<string> {
+    return await this.jobQueue.addCheckStalledDownloadsJob(job.id);
   }
 
   /**

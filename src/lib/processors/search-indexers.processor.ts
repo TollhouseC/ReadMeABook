@@ -10,6 +10,7 @@ import { getRankingAlgorithm } from '../utils/ranking-algorithm';
 import { groupIndexersByCategories, getGroupDescription } from '../utils/indexer-grouping';
 import { RMABLogger } from '../utils/logger';
 import { getLanguageForRegion } from '../constants/language-config';
+import { filterBlacklistedResults } from '../utils/release-blacklist';
 import type { AudibleRegion } from '../types/audible';
 
 /**
@@ -113,8 +114,14 @@ export async function processSearchIndexers(payload: SearchIndexersPayload): Pro
       }
     }
 
-    const searchResults = allResults;
-    logger.info(`Found ${searchResults.length} total results from ${groups.length} group${groups.length > 1 ? 's' : ''}`);
+    logger.info(`Found ${allResults.length} total results from ${groups.length} group${groups.length > 1 ? 's' : ''}`);
+
+    // Exclude releases blacklisted for this book (e.g. torrents that stalled for 24h)
+    const { results: searchResults, removed: blacklistedCount } =
+      await filterBlacklistedResults(audiobook.id, allResults);
+    if (blacklistedCount > 0) {
+      logger.info(`Excluded ${blacklistedCount} blacklisted release(s) for "${audiobook.title}"`);
+    }
 
     if (searchResults.length === 0) {
       // No results found - queue for re-search instead of failing

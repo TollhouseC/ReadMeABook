@@ -76,9 +76,16 @@ PostgreSQL database storing users, audiobooks, requests, downloads, configuratio
 - `id` (UUID PK), `request_id` (FK), `indexer_name`, `torrent_name`, `torrent_hash`
 - `torrent_size_bytes`, `magnet_link`, `torrent_url`, `seeders`, `leechers`
 - `quality_score`, `selected` (bool), `download_client`, `download_client_id`
-- `download_status` ('queued'|'downloading'|'completed'|'failed'|'stalled')
+- `download_status` ('queued'|'downloading'|'completed'|'failed'|'stalled'|'blacklisted')
 - `download_error`, `started_at`, `completed_at`, `created_at`
+- `stall_check_progress` (float 0–1), `stall_checked_at` — baseline for check_stalled_downloads (see services/scheduler.md)
 - Indexes: `request_id`, `selected`, `created_at DESC`
+
+### Blacklisted_Releases
+- `id` (UUID PK), `audiobook_id` (FK → audiobooks, cascade), `title`, `indexer_name`, `info_hash` (lowercase), `release_url` (indexer page URL / guid), `size_bytes`, `reason` ('stalled'), `created_at`
+- Scoped to the audiobook (not the request) so entries survive re-requests
+- Excluded from automatic search via `release-blacklist.ts` (see services/scheduler.md)
+- Indexes: `audiobook_id`, `info_hash`
 
 ### Configuration
 - `id` (UUID PK), `key` (unique), `value`, `encrypted` (bool), `category`, `description`

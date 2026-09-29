@@ -45,6 +45,23 @@ export async function processMonitorDownload(payload: MonitorDownloadPayload): P
   const logger = RMABLogger.forJob(jobId, 'MonitorDownload');
 
   try {
+    // Stop quietly if this download was blacklisted (stalled) — its torrent has been
+    // removed from the client and the request re-searched. Without this, the next
+    // poll would hit "not found" and eventually mark the re-searched request failed.
+    const history = await prisma.downloadHistory.findUnique({
+      where: { id: downloadHistoryId },
+      select: { downloadStatus: true },
+    });
+    if (history?.downloadStatus === 'blacklisted') {
+      logger.info(`Download ${downloadHistoryId} was blacklisted (stalled), stopping monitor for request ${requestId}`);
+      return {
+        success: true,
+        completed: true,
+        message: 'Download blacklisted (stalled); monitoring stopped',
+        requestId,
+      };
+    }
+
     // Get the download client service via the manager
     const configService = getConfigService();
     const manager = getDownloadClientManager(configService);

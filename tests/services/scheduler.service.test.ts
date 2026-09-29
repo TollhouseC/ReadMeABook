@@ -80,7 +80,15 @@ describe('SchedulerService', () => {
     const service = new SchedulerService();
     await service.start();
 
-    expect(prismaMock.scheduledJob.create).toHaveBeenCalledTimes(9);
+    expect(prismaMock.scheduledJob.create).toHaveBeenCalledTimes(10);
+    expect(prismaMock.scheduledJob.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        name: 'Check Stalled Downloads',
+        type: 'check_stalled_downloads',
+        schedule: '0 12 * * *',
+        enabled: true,
+      }),
+    });
     expect(jobQueueMock.addRepeatableJob).toHaveBeenCalledWith(
       'audible_refresh',
       { scheduledJobId: 'job-1' },

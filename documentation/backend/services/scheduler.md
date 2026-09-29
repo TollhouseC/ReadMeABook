@@ -22,6 +22,28 @@ Manages recurring/scheduled jobs providing automated tasks (Plex scans, Audible 
 5. **retry_failed_imports** - Default: every 6 hours, re-attempts 'awaiting_import' status (limit 50), enabled by default
 6. **cleanup_seeded_torrents** - Default: every 30 mins, deletes torrents after seeding requirements met, respects `seeding_time_minutes` config (0 = never), enabled by default
 7. **monitor_rss_feeds** - Default: every 15 mins, checks RSS feeds from enabled indexers, matches against 'awaiting_search' requests (audiobook and ebook, limit 100), triggers appropriate search jobs for matches, enabled by default
+8. **check_stalled_downloads** - Default: daily noon (`0 12 * * *`), enabled by default. See **Stalled Download Detection** below.
+
+## Stalled Download Detection
+
+**Why:** the download monitor never fails a stalled download (stall count only backs off polling, max 5 min) and keeps bumping `updatedAt`, so a dead torrent (no seeders) stays `downloading` forever and escapes the 2h stuck-download recovery.
+
+**Processor:** `src/lib/processors/check-stalled-downloads.processor.ts`
+- Scope: `DownloadHistory` with `selected=true`, `downloadStatus='downloading'`, non-`direct` client, request `status='downloading'` and not deleted.
+- Per download, reads exact progress (0–1) from the client via `getDownload()`:
+  - No baseline → store `stallCheckProgress` + `stallCheckedAt`.
+  - Progress grew (> +0.0001) → move baseline forward.
+  - No progress AND baseline ≥ 20h old (`MIN_STALL_WINDOW_MS`) → **stalled**: `blacklistRelease()`, mark `downloadStatus='blacklisted'` (before deleting, so the monitor stops quietly), `deleteDownload(id, deleteFiles=true)`, request → `pending` + `addSearchJob` / `addSearchEbookJob`.
+  - `paused` / `queued` / `checking` → exempt; baseline cleared so tracking restarts when active.
+  - Complete or missing from client → skipped (monitor handles those).
+- Net effect: a stalled release is blacklisted 24–48h after it stops moving.
+
+**Blacklist:** `BlacklistedRelease` table (see database.md), scoped to the **audiobook** so it survives re-requests (re-request deletes the old request + its download history). Utility: `src/lib/utils/release-blacklist.ts`.
+- `filterBlacklistedResults(audiobookId, results)` runs before ranking in `search-indexers.processor.ts` and the ebook indexer search in `search-ebook.processor.ts`. All results blacklisted → normal "no results" path (`awaiting_search`).
+- Match rules (any): info hash; indexer page URL / guid (`releaseUrl` vs `infoUrl`/`guid`); release title + indexer (case/whitespace-insensitive; title alone when entry has no indexer).
+- Interactive search is not filtered (admins can still pick a blacklisted release deliberately).
+
+**Monitor guard:** `monitor-download.processor.ts` exits early (`completed: true`) when its `DownloadHistory.downloadStatus === 'blacklisted'`; otherwise the removed torrent's "not found" would eventually mark the re-searched request `failed`.
 
 ## Architecture: Bull + Cron
 
