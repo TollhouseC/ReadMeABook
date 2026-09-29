@@ -109,7 +109,14 @@ Configurable Audible region for accurate metadata matching across international 
 - Types: `src/lib/types/audible.ts`
 - Service: `src/lib/integrations/audible.service.ts`
 - Series (HTML): `src/lib/integrations/audible-series.ts`
+- Series product-row parser (new layout): `src/lib/integrations/audible-series-rows.ts`
 - Config: `src/lib/services/config.service.ts`
+
+**Series page layouts (both supported):** Audible is migrating series pages to a new layout series by series, so a page may use either (or both):
+- **New:** each book is an `<adbl-product-row>` web component. Title in `h3[slot="title"]`, ASIN from its `/pd/.../<ASIN>` link, cover in `adbl-product-image img`; author/author-ASIN/narrators/duration/releaseDate/language/rating come from an embedded `<script type="application/json">` in the row. Rating `0` → undefined; "to be announced" narrators dropped. Parsed by `parseProductRows()`.
+- **Legacy:** `.productListItem` / `.bc-list-item` with `h3 a`, `.authorLabel`, `.narratorLabel`, `.runtimeLabel`.
+- `parseSeriesBooks()` runs the new parser first, then legacy, sharing an ASIN dedup set. Header book count uses `adbl-metadata[slot="child-count"]` (fallback counts rows/list items). Series cover falls back to the first `adbl-product-row` image (scoped to rows to avoid Similar Series carousel images).
+- Consumers: `/api/series/[asin]` (detail page) and `watched-lists.service.ts` (nightly watched-series check).
 - API: `src/app/api/admin/settings/audible/route.ts`
 
 ## Unified Matching (`audiobook-matcher.ts`)
@@ -245,6 +252,12 @@ interface AuthorBooksResult {
 - **Impact:** Users self-hosting from non-English-speaking countries got non-English content on HTML-scraped surfaces.
 - **Fix:** Added `language=<audibleLocaleParam>` default param on `htmlClient` (axios default params). Still in effect for the remaining HTML path (`audible-series.ts`). **Not applied to `apiClient`** — the catalog JSON API is region-bound via `apiBaseUrl` and does not require the language param.
 - **Location:** `src/lib/integrations/audible.service.ts` — `initialize()` (htmlClient params)
+
+**Series pages showing "N Books" but "No books found" (2026-09-29)**
+- **Problem:** Audible rolled out a new series-page layout (`<adbl-product-row>` web components) to some series. `parseSeriesBooks()` only matched legacy `.productListItem`/`.bc-list-item`, so new-layout series parsed 0 books while the header count (already new markup) still showed the total. Cover also fell back to the placeholder.
+- **Impact:** Series detail page empty for affected series; **watched-series checks silently found 0 books and never auto-requested new releases** for those series; series search cards showed placeholder covers.
+- **Fix:** Added `parseProductRows()` (reads the row's embedded JSON metadata), run before the legacy parser with shared ASIN dedup; cover and count fallbacks extended to rows. Legacy layout unchanged.
+- **Location:** `src/lib/integrations/audible-series-rows.ts`, `src/lib/integrations/audible-series.ts` (`parseSeriesBooks`, `parseSeriesPageSummary`). Tests: `tests/integrations/audible-series.test.ts`.
 
 ## Related
 

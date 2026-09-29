@@ -19,6 +19,7 @@ import {
 import { RMABLogger } from '../utils/logger';
 import { parseRuntime } from '../utils/parse-runtime';
 import { randomDelay } from '../utils/scrape-resilience';
+import { parseProductRows } from './audible-series-rows';
 
 const logger = RMABLogger.create('Audible.Series');
 
@@ -248,7 +249,7 @@ function parseSeriesPageSummary(
 
   // Fallback: count product items on the page
   if (bookCount === 0) {
-    bookCount = $('.productListItem, .bc-list-item[data-asin]').length;
+    bookCount = $('.productListItem, .bc-list-item[data-asin], adbl-product-row').length;
   }
 
   // Rating
@@ -276,8 +277,11 @@ function parseSeriesPageSummary(
   }
 
   // Cover art from first book image
-  const coverArtUrl = $('.productListItem img, .bc-list-item img').first()
-    .attr('src')?.replace(/\._.*_\./, '._SL500_.') || undefined;
+  // Cover from the first book: legacy list items, else the newer <adbl-product-row>
+  // layout (scoped to rows so carousel images from other series aren't picked up)
+  const coverArtUrl = ($('.productListItem img, .bc-list-item img').first().attr('src') ||
+    $('adbl-product-row adbl-product-image img, adbl-product-row img').first().attr('src'))
+    ?.replace(/\._.*_\./, '._SL500_.') || undefined;
 
   return { asin, title, bookCount, rating, ratingCount, tags: tags.slice(0, 5), coverArtUrl };
 }
@@ -411,6 +415,16 @@ function parseSeriesBooks(
   const books: AudibleAudiobook[] = [];
   const seenAsins = new Set<string>();
 
+  // Newer layout: books rendered as <adbl-product-row> web components. Audible is
+  // rolling this out series by series, so parse it first, then fall through to the
+  // legacy layout below (sharing seenAsins so a mixed page doesn't double-count).
+  for (const book of parseProductRows($, langConfig)) {
+    if (seenAsins.has(book.asin)) continue;
+    seenAsins.add(book.asin);
+    books.push(book);
+  }
+
+  // Legacy layout: .productListItem / .bc-list-item
   $('.productListItem, .bc-list-item').each((_index, element) => {
     const $el = $(element);
 
