@@ -244,6 +244,8 @@ model Request {
   maxImportRetries Int       @default(5) @map("max_import_retries")
   lastSearchAt     DateTime? @map("last_search_at")
   customSearchTerms String?  @map("custom_search_terms") @db.Text
+  // Last series/author pack search for this request (limits pack searches to ~daily)
+  lastPackSearchAt DateTime? @map("last_pack_search_at")
   lastImportAt     DateTime? @map("last_import_at")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
@@ -305,6 +307,12 @@ model DownloadHistory {
   // progress fraction (0-1) recorded at the last check, and when it was recorded.
   stallCheckProgress Float?    @map("stall_check_progress")
   stallCheckedAt     DateTime? @map("stall_checked_at")
+
+  // Series/author packs: this request's book files inside the pack, relative to the
+  // torrent's content root (passed to organize as selectedFiles), and the pack type.
+  // Several requests can share one pack torrent (same downloadClientId).
+  packFiles Json?   @map("pack_files")
+  packType  String? @map("pack_type") // 'series' | 'author'
 
   // Relations
   request Request @relation(fields: [requestId], references: [id], onDelete: Cascade)

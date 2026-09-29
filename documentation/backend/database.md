@@ -70,6 +70,7 @@ PostgreSQL database storing users, audiobooks, requests, downloads, configuratio
 - `progress` (0-100), `priority`, `error_message`
 - `search_attempts`, `download_attempts`, `import_attempts`, `max_import_retries` (default 5)
 - `last_search_at`, `last_import_at`, `created_at`, `updated_at`, `completed_at`
+- `last_pack_search_at` — throttles series/author pack searches to ~daily (see [features/series-packs.md](../features/series-packs.md))
 - Unique: `(user_id, audiobook_id)`
 - Indexes: `user_id`, `audiobook_id`, `status`, `created_at DESC`
 
@@ -80,6 +81,7 @@ PostgreSQL database storing users, audiobooks, requests, downloads, configuratio
 - `download_status` ('queued'|'downloading'|'completed'|'failed'|'stalled'|'blacklisted')
 - `download_error`, `started_at`, `completed_at`, `created_at`
 - `stall_check_progress` (float 0–1), `stall_checked_at` — baseline for check_stalled_downloads (see services/scheduler.md)
+- `pack_files` (JSON string[]), `pack_type` ('series'|'author') — this request's book files inside a shared series/author pack torrent (see [features/series-packs.md](../features/series-packs.md))
 - Indexes: `request_id`, `selected`, `created_at DESC`
 
 ### Watched_Series

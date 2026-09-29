@@ -50,8 +50,21 @@ export async function processMonitorDownload(payload: MonitorDownloadPayload): P
     // poll would hit "not found" and eventually mark the re-searched request failed.
     const history = await prisma.downloadHistory.findUnique({
       where: { id: downloadHistoryId },
-      select: { downloadStatus: true },
+      select: { downloadStatus: true, packFiles: true },
     });
+
+    // Series/author pack: several requests share this torrent, each importing its own
+    // book's files. This monitor (the triggering request's) drives all of them.
+    const packFiles = Array.isArray(history?.packFiles) ? (history!.packFiles as string[]) : null;
+    const getLinkedPackRows = async () => {
+      if (!packFiles) return [];
+      const rows = await prisma.downloadHistory.findMany({
+        where: { downloadClientId, id: { not: downloadHistoryId }, downloadStatus: 'downloading' },
+        select: { id: true, requestId: true, packFiles: true },
+      });
+      return (rows || []).filter(r => Array.isArray(r.packFiles));
+    };
+
     if (history?.downloadStatus === 'blacklisted') {
       logger.info(`Download ${downloadHistoryId} was blacklisted (stalled), stopping monitor for request ${requestId}`);
       return {
@@ -101,6 +114,15 @@ export async function processMonitorDownload(payload: MonitorDownloadPayload): P
         updatedAt: new Date(),
       },
     });
+
+    // Pack: mirror progress onto the other requests sharing this torrent
+    const linkedPackRows = await getLinkedPackRows();
+    if (linkedPackRows.length > 0) {
+      await prisma.request.updateMany({
+        where: { id: { in: linkedPackRows.map(r => r.requestId) } },
+        data: { progress: progressPercent, updatedAt: new Date() },
+      });
+    }
 
     // Update download history
     await prisma.downloadHistory.update({
@@ -192,15 +214,32 @@ export async function processMonitorDownload(payload: MonitorDownloadPayload): P
         throw new Error('Request or audiobook not found or deleted');
       }
 
-      // Trigger organize files job with properly constructed path
+      // Trigger organize files job with properly constructed path. For a pack, import
+      // only this request's book files from it.
       const jobQueue = getJobQueueService();
-      await jobQueue.addOrganizeJob(
-        requestId,
-        request.audiobook.id,
-        organizePath
-      );
+      if (packFiles) {
+        await jobQueue.addOrganizeJob(requestId, request.audiobook.id, organizePath, undefined, false, packFiles);
+      } else {
+        await jobQueue.addOrganizeJob(requestId, request.audiobook.id, organizePath);
+      }
 
-      logger.info(`Triggered organize_files job for request ${requestId}`);
+      logger.info(`Triggered organize_files job for request ${requestId}${packFiles ? ` (${packFiles.length} pack file(s))` : ''}`);
+
+      // Pack: each other request sharing the torrent imports its own book
+      for (const row of linkedPackRows) {
+        const linked = await prisma.request.findFirst({
+          where: { id: row.requestId, deletedAt: null },
+          include: { audiobook: true },
+        });
+        if (!linked?.audiobook) continue;
+
+        await prisma.downloadHistory.update({
+          where: { id: row.id },
+          data: { downloadStatus: 'completed', completedAt: new Date(), downloadPath: organizePath },
+        });
+        await jobQueue.addOrganizeJob(linked.id, linked.audiobook.id, organizePath, undefined, false, row.packFiles as string[]);
+        logger.info(`Triggered organize_files job for pack-linked request ${linked.id} ("${linked.audiobook.title}")`);
+      }
 
       return {
         success: true,
@@ -233,6 +272,18 @@ export async function processMonitorDownload(payload: MonitorDownloadPayload): P
           downloadError: errorMessage,
         },
       });
+
+      // Pack: the other requests sharing this torrent failed too (so they retry)
+      if (linkedPackRows.length > 0) {
+        await prisma.request.updateMany({
+          where: { id: { in: linkedPackRows.map(r => r.requestId) } },
+          data: { status: 'failed', errorMessage, updatedAt: new Date() },
+        });
+        await prisma.downloadHistory.updateMany({
+          where: { id: { in: linkedPackRows.map(r => r.id) } },
+          data: { downloadStatus: 'failed', downloadError: errorMessage },
+        });
+      }
 
       // Send notification for request failure
       const request = await prisma.request.findUnique({

@@ -177,6 +177,66 @@ describe('processSearchIndexers', () => {
     );
   });
 
+  describe('series/author pack search', () => {
+    const DAY = 24 * 60 * 60 * 1000;
+
+    function noResults() {
+      configMock.get.mockImplementation(async (key: string) =>
+        key === 'prowlarr_indexers'
+          ? JSON.stringify([{ id: 1, name: 'Indexer', protocol: 'torrent', priority: 10, categories: [3030] }])
+          : null
+      );
+      prowlarrMock.searchWithVariations.mockResolvedValue([]);
+      prismaMock.request.update.mockResolvedValue({});
+      (jobQueueMock as any).addSearchPacksJob = vi.fn().mockResolvedValue('job');
+    }
+
+    async function search() {
+      const { processSearchIndexers } = await import('@/lib/processors/search-indexers.processor');
+      return processSearchIndexers({ requestId: 'req-p', audiobook: { id: 'a-p', title: 'Book', author: 'Author' }, jobId: 'job-p' });
+    }
+
+    it('queues a pack search when an audiobook request has searched for 24h+', async () => {
+      noResults();
+      prismaMock.request.findUnique.mockResolvedValueOnce({
+        status: 'awaiting_search', type: 'audiobook', createdAt: new Date(Date.now() - 2 * DAY), lastPackSearchAt: null, customSearchTerms: null,
+      });
+
+      await search();
+
+      expect((jobQueueMock as any).addSearchPacksJob).toHaveBeenCalledWith('req-p');
+    });
+
+    it('does not queue a pack search for a new request or one searched recently', async () => {
+      noResults();
+      prismaMock.request.findUnique.mockResolvedValueOnce({
+        status: 'awaiting_search', type: 'audiobook', createdAt: new Date(), lastPackSearchAt: null, customSearchTerms: null,
+      });
+      await search();
+
+      prismaMock.request.findUnique.mockResolvedValueOnce({
+        status: 'awaiting_search', type: 'audiobook', createdAt: new Date(Date.now() - 3 * DAY),
+        lastPackSearchAt: new Date(Date.now() - 60 * 60 * 1000), customSearchTerms: null,
+      });
+      await search();
+
+      expect((jobQueueMock as any).addSearchPacksJob).not.toHaveBeenCalled();
+    });
+
+    it('skips the search entirely when the request is already downloading (e.g. linked to a pack)', async () => {
+      noResults();
+      prismaMock.request.findUnique.mockResolvedValueOnce({
+        status: 'downloading', type: 'audiobook', createdAt: new Date(), lastPackSearchAt: null, customSearchTerms: null,
+      });
+
+      const result = await search();
+
+      expect(result.message).toContain('already downloading');
+      expect(prismaMock.request.update).not.toHaveBeenCalled();
+      expect(prowlarrMock.searchWithVariations).not.toHaveBeenCalled();
+    });
+  });
+
   it('fails when no indexers are configured', async () => {
     configMock.get.mockResolvedValue(null);
     prismaMock.request.update.mockResolvedValue({});

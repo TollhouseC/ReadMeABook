@@ -40,6 +40,11 @@ vi.mock('@/components/admin/FlagConfigRow', () => ({
   FlagConfigRow: () => <div data-testid="flag-config-row">Flag Config</div>,
 }));
 
+// Self-contained card with its own data fetching; tested in admin-settings-pack-search.test.tsx
+vi.mock('@/app/admin/settings/tabs/IndexersTab/PackSearchSection', () => ({
+  PackSearchSection: () => <div data-testid="pack-search-section">Series &amp; Author Packs</div>,
+}));
+
 vi.mock('@/components/ui/Button', () => ({
   Button: ({ children, onClick, loading, disabled, ...props }: any) => (
     <button

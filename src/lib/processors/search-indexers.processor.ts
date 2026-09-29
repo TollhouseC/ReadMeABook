@@ -11,6 +11,7 @@ import { groupIndexersByCategories, getGroupDescription } from '../utils/indexer
 import { RMABLogger } from '../utils/logger';
 import { getLanguageForRegion } from '../constants/language-config';
 import { filterBlacklistedResults } from '../utils/release-blacklist';
+import { isPackSearchDue } from '../utils/pack-search-due';
 import type { AudibleRegion } from '../types/audible';
 
 /**
@@ -25,6 +26,18 @@ export async function processSearchIndexers(payload: SearchIndexersPayload): Pro
   logger.info(`Processing request ${requestId} for "${audiobook.title}"`);
 
   try {
+    const requestRecord = await prisma.request.findUnique({
+      where: { id: requestId },
+      select: { status: true, type: true, createdAt: true, lastPackSearchAt: true, customSearchTerms: true },
+    });
+
+    // A queued search can run after the request was linked to a pack download — don't
+    // clobber an in-progress/finished download with a new search
+    if (requestRecord && ['downloading', 'processing', 'downloaded', 'available'].includes(requestRecord.status)) {
+      logger.info(`Request ${requestId} is already ${requestRecord.status}, skipping search`);
+      return { success: true, message: `Skipped: request already ${requestRecord.status}`, requestId };
+    }
+
     // Update request status to searching
     await prisma.request.update({
       where: { id: requestId },
@@ -36,11 +49,17 @@ export async function processSearchIndexers(payload: SearchIndexersPayload): Pro
     });
 
     // Check for custom search terms override
-    const requestRecord = await prisma.request.findUnique({
-      where: { id: requestId },
-      select: { customSearchTerms: true },
-    });
     const effectiveSearchTitle = requestRecord?.customSearchTerms || audiobook.title;
+
+    // After 24h without a usable individual release, also look for series/author packs
+    const queuePackSearchIfDue = async () => {
+      if (requestRecord?.type === 'audiobook' && isPackSearchDue(requestRecord)) {
+        await getJobQueueService().addSearchPacksJob(requestId).catch((error) => {
+          logger.warn(`Failed to queue pack search: ${error instanceof Error ? error.message : String(error)}`);
+        });
+        logger.info(`Queued series/author pack search for request ${requestId}`);
+      }
+    };
 
     // Get enabled indexers from configuration
     const { getConfigService } = await import('../services/config.service');
@@ -137,6 +156,8 @@ export async function processSearchIndexers(payload: SearchIndexersPayload): Pro
         },
       });
 
+      await queuePackSearchIfDue();
+
       return {
         success: false,
         message: 'No torrents/nzbs found, queued for re-search',
@@ -222,6 +243,8 @@ export async function processSearchIndexers(payload: SearchIndexersPayload): Pro
           updatedAt: new Date(),
         },
       });
+
+      await queuePackSearchIfDue();
 
       return {
         success: false,

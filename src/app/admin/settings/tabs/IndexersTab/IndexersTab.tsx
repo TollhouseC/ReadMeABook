@@ -13,6 +13,7 @@ import { IndexerManagement } from '@/components/admin/indexers/IndexerManagement
 import { FlagConfigRow } from '@/components/admin/FlagConfigRow';
 import { IndexerFlagConfig } from '@/lib/utils/ranking-algorithm';
 import { useIndexersSettings } from './useIndexersSettings';
+import { PackSearchSection } from './PackSearchSection';
 import type { Settings, SavedIndexerConfig } from '../../lib/types';
 
 interface IndexersTabProps {
@@ -193,6 +194,9 @@ export function IndexersTab({
           </p>
         )}
       </div>
+
+      {/* Series & author packs (saves immediately) */}
+      <PackSearchSection />
 
       {/* Confirmation modal for Prowlarr connection change */}
       <ConfirmModal

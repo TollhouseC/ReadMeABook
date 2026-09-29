@@ -29,6 +29,7 @@ export type JobType =
   | 'sync_reading_shelves'
   | 'check_watched_lists'
   | 'check_stalled_downloads'
+  | 'search_packs'
   | 'send_notification'
   // Ebook-specific job types
   | 'search_ebook'
@@ -112,6 +113,10 @@ export interface CleanupSeededTorrentsPayload extends JobPayload {
 
 export interface CheckStalledDownloadsPayload extends JobPayload {
   scheduledJobId?: string;
+}
+
+export interface SearchPacksPayload extends JobPayload {
+  requestId: string;
 }
 
 export interface SyncShelvesPayload extends JobPayload {
@@ -413,6 +418,13 @@ export class JobQueueService {
       const { processCheckStalledDownloads } = await import('../processors/check-stalled-downloads.processor');
       const payloadWithJobId = await this.ensureJobRecord(job, 'check_stalled_downloads');
       return await processCheckStalledDownloads(payloadWithJobId);
+    });
+
+    // Concurrency 1: pack inspections add torrents to the client and poll for metadata
+    this.queue.process('search_packs', 1, async (job: BullJob<SearchPacksPayload>) => {
+      const { processSearchPacks } = await import('../processors/search-packs.processor');
+      const payloadWithJobId = await this.ensureJobRecord(job, 'search_packs');
+      return await processSearchPacks(payloadWithJobId);
     });
 
     // Send notification processor
@@ -793,6 +805,19 @@ export class JobQueueService {
       } as CheckStalledDownloadsPayload,
       {
         priority: 7,
+      }
+    );
+  }
+
+  /**
+   * Add a series/author pack search for a request whose individual search keeps failing
+   */
+  async addSearchPacksJob(requestId: string): Promise<string> {
+    return await this.addJob(
+      'search_packs',
+      { requestId } as SearchPacksPayload,
+      {
+        priority: 9, // below regular searches
       }
     );
   }

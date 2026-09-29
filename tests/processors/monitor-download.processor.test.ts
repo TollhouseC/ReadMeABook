@@ -72,6 +72,98 @@ describe('processMonitorDownload', () => {
     expect(prismaMock.request.update).not.toHaveBeenCalled();
   });
 
+  describe('series/author packs', () => {
+    function packClient(status: string, progress: number) {
+      return {
+        clientType: 'qbittorrent',
+        protocol: 'torrent',
+        getDownload: vi.fn().mockResolvedValue({
+          id: 'pack-hash', name: 'Mistborn Complete', size: 0, bytesDownloaded: 0, progress, status,
+          downloadSpeed: 1000, eta: 0, category: 'readmeabook', downloadPath: '/downloads/Mistborn Complete',
+        }),
+      };
+    }
+
+    function setupPack(status: string, progress: number) {
+      downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(packClient(status, progress));
+      downloadClientManagerMock.getClientForProtocol.mockResolvedValue({ remotePathMappingEnabled: false });
+      prismaMock.downloadHistory.findUnique.mockResolvedValueOnce({
+        downloadStatus: 'downloading',
+        packFiles: ['02 - Well of Ascension/a.m4b'],
+      });
+      prismaMock.downloadHistory.findMany.mockResolvedValue([
+        { id: 'dh-3', requestId: 'req-3', packFiles: ['03 - Hero of Ages/a.m4b'] },
+      ]);
+      prismaMock.request.update.mockResolvedValue({});
+      prismaMock.request.updateMany.mockResolvedValue({});
+      prismaMock.downloadHistory.update.mockResolvedValue({});
+      prismaMock.downloadHistory.updateMany.mockResolvedValue({});
+      prismaMock.request.findFirst.mockImplementation(async ({ where }: any) =>
+        where.id === 'req-3'
+          ? { id: 'req-3', audiobook: { id: 'ab-3', title: 'The Hero of Ages' }, deletedAt: null }
+          : { id: 'req-2', audiobook: { id: 'ab-2' }, deletedAt: null }
+      );
+      prismaMock.request.findUnique.mockResolvedValue({
+        id: 'req-2', audiobook: { title: 'T', author: 'A' }, user: { plexUsername: 'u' },
+      });
+    }
+
+    const payload = {
+      requestId: 'req-2', downloadHistoryId: 'dh-2', downloadClientId: 'pack-hash', downloadClient: 'qbittorrent', jobId: 'job-p',
+    };
+
+    it('on completion, imports each linked request\'s own book from the shared pack', async () => {
+      setupPack('completed', 1.0);
+
+      const { processMonitorDownload } = await import('@/lib/processors/monitor-download.processor');
+      const result = await processMonitorDownload(payload);
+
+      expect(result.completed).toBe(true);
+      expect(prismaMock.downloadHistory.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { downloadClientId: 'pack-hash', id: { not: 'dh-2' }, downloadStatus: 'downloading' },
+      }));
+      expect(jobQueueMock.addOrganizeJob).toHaveBeenCalledWith(
+        'req-2', 'ab-2', expect.stringMatching(/Mistborn Complete/), undefined, false, ['02 - Well of Ascension/a.m4b']
+      );
+      expect(jobQueueMock.addOrganizeJob).toHaveBeenCalledWith(
+        'req-3', 'ab-3', expect.stringMatching(/Mistborn Complete/), undefined, false, ['03 - Hero of Ages/a.m4b']
+      );
+      expect(prismaMock.downloadHistory.update).toHaveBeenCalledWith({
+        where: { id: 'dh-3' },
+        data: expect.objectContaining({ downloadStatus: 'completed' }),
+      });
+    });
+
+    it('mirrors progress onto linked requests while downloading', async () => {
+      setupPack('downloading', 0.42);
+
+      const { processMonitorDownload } = await import('@/lib/processors/monitor-download.processor');
+      await processMonitorDownload(payload);
+
+      expect(prismaMock.request.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['req-3'] } },
+        data: expect.objectContaining({ progress: 42 }),
+      });
+      expect(jobQueueMock.addOrganizeJob).not.toHaveBeenCalled();
+    });
+
+    it('fails linked requests too when the pack download fails', async () => {
+      setupPack('failed', 0.3);
+
+      const { processMonitorDownload } = await import('@/lib/processors/monitor-download.processor');
+      await processMonitorDownload(payload);
+
+      expect(prismaMock.request.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['req-3'] } },
+        data: expect.objectContaining({ status: 'failed' }),
+      });
+      expect(prismaMock.downloadHistory.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['dh-3'] } },
+        data: expect.objectContaining({ downloadStatus: 'failed' }),
+      });
+    });
+  });
+
   it('queues organize job when qBittorrent download completes', async () => {
     const qbtClientMock = {
       clientType: 'qbittorrent',
