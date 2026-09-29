@@ -11,7 +11,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { useWatchedSeries, useDeleteWatchedSeries, WatchedSeriesItem } from '@/lib/hooks/useWatchedSeries';
+import { useWatchedSeries, useDeleteWatchedSeries, useUpdateWatchedSeries, WatchedSeriesItem } from '@/lib/hooks/useWatchedSeries';
 import { useWatchedAuthors, useDeleteWatchedAuthor, WatchedAuthorItem } from '@/lib/hooks/useWatchedAuthors';
 import { usePreferences } from '@/contexts/PreferencesContext';
 
@@ -37,8 +37,10 @@ export function WatchedSeriesSection() {
   const router = useRouter();
   const { series, isLoading } = useWatchedSeries();
   const { deleteSeries, isLoading: isDeleting } = useDeleteWatchedSeries();
+  const { setAllowAlternateVersions } = useUpdateWatchedSeries();
   const { squareCovers } = usePreferences();
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   const handleDelete = async (id: string) => {
     try {
@@ -46,6 +48,17 @@ export function WatchedSeriesSection() {
       setConfirmDeleteId(null);
     } catch {
       // Error handled by hook
+    }
+  };
+
+  const handleToggleAlternates = async (item: WatchedSeriesItem) => {
+    setUpdatingId(item.id);
+    try {
+      await setAllowAlternateVersions(item.id, !item.allowAlternateVersions);
+    } catch {
+      // Error handled by hook
+    } finally {
+      setUpdatingId(null);
     }
   };
 
@@ -73,10 +86,12 @@ export function WatchedSeriesSection() {
             squareCovers={squareCovers}
             isDeleting={isDeleting && confirmDeleteId === item.id}
             confirmingDelete={confirmDeleteId === item.id}
+            isUpdating={updatingId === item.id}
             onNavigate={() => router.push(`/series/${item.seriesAsin}`)}
             onConfirmDelete={() => setConfirmDeleteId(item.id)}
             onCancelDelete={() => setConfirmDeleteId(null)}
             onDelete={() => handleDelete(item.id)}
+            onToggleAlternates={() => handleToggleAlternates(item)}
           />
         ))}
       </div>
@@ -85,16 +100,19 @@ export function WatchedSeriesSection() {
 }
 
 function WatchedSeriesCard({
-  item, squareCovers, isDeleting, confirmingDelete, onNavigate, onConfirmDelete, onCancelDelete, onDelete,
+  item, squareCovers, isDeleting, confirmingDelete, isUpdating,
+  onNavigate, onConfirmDelete, onCancelDelete, onDelete, onToggleAlternates,
 }: {
   item: WatchedSeriesItem;
   squareCovers: boolean;
   isDeleting: boolean;
   confirmingDelete: boolean;
+  isUpdating: boolean;
   onNavigate: () => void;
   onConfirmDelete: () => void;
   onCancelDelete: () => void;
   onDelete: () => void;
+  onToggleAlternates: () => void;
 }) {
   return (
     <div className="rounded-xl bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700/50 p-4 flex gap-4 hover:shadow-sm transition-shadow">
@@ -122,6 +140,32 @@ function WatchedSeriesCard({
         <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
           Last checked: {formatRelativeTime(item.lastCheckedAt)}
         </p>
+
+        {/* Alternate versions opt-in */}
+        <label
+          className="mt-2 flex items-center gap-2 cursor-pointer select-none"
+          title="Also request other versions of each book (dramatized, full cast, other narrators). They need admin approval and are imported as their own series."
+        >
+          <button
+            type="button"
+            role="switch"
+            aria-checked={item.allowAlternateVersions}
+            aria-label="Alternate versions"
+            onClick={onToggleAlternates}
+            disabled={isUpdating}
+            className="relative inline-flex h-4 w-8 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-1 dark:focus:ring-offset-gray-800 disabled:opacity-50"
+            style={{ backgroundColor: item.allowAlternateVersions ? '#10b981' : '#d1d5db' }}
+          >
+            <span
+              className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                item.allowAlternateVersions ? 'translate-x-4' : 'translate-x-0.5'
+              }`}
+            />
+          </button>
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            Alternate versions <span className="text-gray-400 dark:text-gray-500">(admin approval)</span>
+          </span>
+        </label>
       </div>
 
       {/* Delete */}

@@ -15,6 +15,8 @@ export interface WatchedSeriesItem {
   seriesAsin: string;
   seriesTitle: string;
   coverArtUrl: string | null;
+  /** Also request other versions (admin approval), imported as their own series */
+  allowAlternateVersions: boolean;
   lastCheckedAt: string | null;
   createdAt: string;
 }
@@ -78,6 +80,46 @@ export function useAddWatchedSeries() {
   };
 
   return { addSeries, isLoading, error };
+}
+
+export function useUpdateWatchedSeries() {
+  const { accessToken } = useAuth();
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const setAllowAlternateVersions = async (id: string, allowAlternateVersions: boolean) => {
+    if (!accessToken) throw new Error('Not authenticated');
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetchWithAuth(`/api/user/watched-series/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allowAlternateVersions }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error || 'Failed to update watched series');
+      }
+
+      // Revalidate watched series list
+      mutate((key) => typeof key === 'string' && key.includes('/api/user/watched-series'));
+
+      return data.series as WatchedSeriesItem;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      setError(message);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return { setAllowAlternateVersions, isLoading, error };
 }
 
 export function useDeleteWatchedSeries() {

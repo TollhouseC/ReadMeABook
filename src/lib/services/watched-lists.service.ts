@@ -16,6 +16,7 @@ import { persistDedupGroups } from '@/lib/services/works.service';
 import { createRequestForUser } from '@/lib/services/request-creator.service';
 import { findPlexMatch } from '@/lib/utils/audiobook-matcher';
 import { getSiblingAsins } from '@/lib/services/works.service';
+import { planVersionRequests, getOwnedWorkKeys, getRequestedAsins } from '@/lib/services/watched-lists-versions';
 import { RMABLogger } from '@/lib/utils/logger';
 
 const logger = RMABLogger.create('WatchedLists');
@@ -36,6 +37,10 @@ export interface WatchedListsSyncStats {
   requestsCreated: number;
   skippedOwned: number;
   skippedExisting: number;
+  /** Another version of the book is already on the server or requested */
+  skippedDuplicateVersion: number;
+  /** Alternate versions requested pending admin approval (series opted in) */
+  alternateVersionsQueued: number;
   errors: number;
 }
 
@@ -65,6 +70,8 @@ export async function processWatchedLists(
     requestsCreated: 0,
     skippedOwned: 0,
     skippedExisting: 0,
+    skippedDuplicateVersion: 0,
+    alternateVersionsQueued: 0,
     errors: 0,
   };
 
@@ -81,6 +88,8 @@ export async function processWatchedLists(
     requestsCreated: stats.requestsCreated,
     skippedOwned: stats.skippedOwned,
     skippedExisting: stats.skippedExisting,
+    skippedDuplicateVersion: stats.skippedDuplicateVersion,
+    alternateVersionsQueued: stats.alternateVersionsQueued,
     errors: stats.errors,
   });
 
@@ -136,7 +145,12 @@ async function processAllWatchedSeries(
 
 async function processSeriesForUsers(
   seriesAsin: string,
-  subscriptions: Array<{ id: string; seriesTitle: string; user: { id: string; plexUsername: string } }>,
+  subscriptions: Array<{
+    id: string;
+    seriesTitle: string;
+    allowAlternateVersions?: boolean;
+    user: { id: string; plexUsername: string };
+  }>,
   log: ReturnType<typeof RMABLogger.forJob> | ReturnType<typeof RMABLogger.create>,
   stats: WatchedListsSyncStats
 ): Promise<void> {
@@ -182,7 +196,8 @@ async function processSeriesForUsers(
       subscription.user.plexUsername,
       dedupedBooks,
       log,
-      stats
+      stats,
+      { allowAlternateVersions: subscription.allowAlternateVersions === true }
     );
 
     // Update lastCheckedAt
@@ -290,14 +305,16 @@ async function processAuthorForUsers(
     persistDedupGroups(groups).catch(() => {});
   }
 
-  // For each user watching this author, create requests for new books
+  // For each user watching this author, create requests for new books.
+  // Alternate versions are a per-series opt-in, so authors always pull one version.
   for (const subscription of subscriptions) {
     await createRequestsForUser(
       subscription.user.id,
       subscription.user.plexUsername,
       dedupedBooks,
       log,
-      stats
+      stats,
+      { allowAlternateVersions: false }
     );
 
     // Update lastCheckedAt
@@ -319,38 +336,71 @@ async function createRequestsForUser(
   username: string,
   books: AudibleAudiobook[],
   log: ReturnType<typeof RMABLogger.forJob> | ReturnType<typeof RMABLogger.create>,
-  stats: WatchedListsSyncStats
+  stats: WatchedListsSyncStats,
+  { allowAlternateVersions }: { allowAlternateVersions: boolean }
 ): Promise<void> {
   // Filter to books that have an ASIN
   const booksWithAsin = books.filter(b => b.asin);
   if (booksWithAsin.length === 0) return;
 
-  // Batch check: which ASINs are already in library (direct + sibling expansion)
-  const ownedAsins = await getOwnedAsins(booksWithAsin.map(b => b.asin));
+  const asins = booksWithAsin.map(b => b.asin);
+  const [ownedAsins, ownedWorkKeys, requestedAsins] = await Promise.all([
+    getOwnedAsins(asins), // direct + sibling expansion
+    getOwnedWorkKeys(booksWithAsin),
+    getRequestedAsins(asins),
+  ]);
 
-  for (const book of booksWithAsin) {
-    // Skip if user already owns this (direct or via sibling ASIN)
-    if (ownedAsins.has(book.asin)) {
+  // One version per book unless the series opted into alternate versions
+  const plan = planVersionRequests(booksWithAsin, {
+    ownedAsins,
+    ownedWorkKeys,
+    requestedAsins,
+    allowAlternateVersions,
+  });
+
+  for (const item of plan) {
+    const { book } = item;
+
+    if (item.action === 'skip_owned') {
       stats.skippedOwned++;
       continue;
     }
+    if (item.action === 'skip_requested') {
+      stats.skippedExisting++;
+      continue;
+    }
+    if (item.action === 'skip_duplicate_version') {
+      stats.skippedDuplicateVersion++;
+      log.info(`Skipped "${book.title}" (${book.asin}) — another version of this book is already on the server, requested, or preferred`);
+      continue;
+    }
 
+    const isAlternate = item.action === 'request_alternate';
+    const input = {
+      asin: book.asin,
+      title: book.title,
+      author: book.author,
+      narrator: book.narrator,
+      description: book.description,
+      coverArtUrl: book.coverArtUrl,
+    };
     try {
-      const result = await createRequestForUser(userId, {
-        asin: book.asin,
-        title: book.title,
-        author: book.author,
-        narrator: book.narrator,
-        description: book.description,
-        coverArtUrl: book.coverArtUrl,
-      });
+      const result = isAlternate
+        ? await createRequestForUser(userId, input, { forceApproval: true, versionLabel: item.versionLabel })
+        : await createRequestForUser(userId, input);
 
-      if (result.success) {
-        stats.requestsCreated++;
-        log.info(`Auto-requested "${book.title}" by ${book.author} for ${username}`);
-      } else {
+      if (!result.success) {
         // already_available, being_processed, duplicate — all expected
         stats.skippedExisting++;
+      } else if (isAlternate) {
+        stats.alternateVersionsQueued++;
+        log.info(
+          `Queued alternate version "${book.title}"${item.versionLabel ? ` (${item.versionLabel})` : ''} ` +
+          `by ${book.author} for ${username}, pending admin approval`
+        );
+      } else {
+        stats.requestsCreated++;
+        log.info(`Auto-requested "${book.title}" by ${book.author} for ${username}`);
       }
     } catch (error) {
       log.error(`Failed to create request for "${book.title}" for ${username}`, {

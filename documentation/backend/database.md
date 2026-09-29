@@ -52,6 +52,7 @@ PostgreSQL database storing users, audiobooks, requests, downloads, configuratio
 - `cover_art_url`, `file_path`, `file_format`, `file_size_bytes`
 - `plex_guid` (nullable), `plex_library_id` (nullable), `abs_item_id` (nullable)
 - `files_hash` (nullable) - SHA256 hash of sorted audio filenames for library matching
+- `version_label` (nullable) - alternate-version label (e.g. "Dramatized Adaptation"); appended to series + title at import (see [features/watched-lists.md](../features/watched-lists.md))
 - `status` ('requested'|'downloading'|'processing'|'completed'|'failed')
 - `created_at`, `updated_at`, `completed_at`
 - Indexes: `audible_asin`, `plex_guid`, `abs_item_id`, `files_hash`, `title`, `author`, `status`
@@ -80,6 +81,11 @@ PostgreSQL database storing users, audiobooks, requests, downloads, configuratio
 - `download_error`, `started_at`, `completed_at`, `created_at`
 - `stall_check_progress` (float 0–1), `stall_checked_at` — baseline for check_stalled_downloads (see services/scheduler.md)
 - Indexes: `request_id`, `selected`, `created_at DESC`
+
+### Watched_Series
+- `id` (UUID PK), `user_id` (FK → users, cascade), `series_asin`, `series_title`, `cover_art_url`, `last_checked_at`, `created_at`, `updated_at`
+- `allow_alternate_versions` (bool, default false) - also request other versions of each book, pending admin approval (see [features/watched-lists.md](../features/watched-lists.md))
+- Unique: (`user_id`, `series_asin`)
 
 ### Blacklisted_Releases
 - `id` (UUID PK), `audiobook_id` (FK → audiobooks, cascade), `title`, `indexer_name`, `info_hash` (lowercase), `release_url` (indexer page URL / guid), `size_bytes`, `reason` ('stalled'), `created_at`

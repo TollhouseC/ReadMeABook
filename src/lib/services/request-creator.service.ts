@@ -29,6 +29,16 @@ export interface CreateRequestOptions {
   skipAutoSearch?: boolean;
   /** When true, skip the per-user ignore list check (used for manual requests) */
   bypassIgnore?: boolean;
+  /**
+   * When true, the request always waits for admin approval, regardless of the user's
+   * role or auto-approve settings (used for alternate versions from watched series).
+   */
+  forceApproval?: boolean;
+  /**
+   * Alternate-version label stored on the audiobook (e.g. "Dramatized Adaptation").
+   * At import it is appended to the series name and title folder.
+   */
+  versionLabel?: string;
 }
 
 export type CreateRequestResult =
@@ -44,7 +54,7 @@ export async function createRequestForUser(
   audiobook: CreateRequestInput,
   options: CreateRequestOptions = {}
 ): Promise<CreateRequestResult> {
-  const { skipAutoSearch = false, bypassIgnore = false } = options;
+  const { skipAutoSearch = false, bypassIgnore = false, forceApproval = false, versionLabel } = options;
 
   // Check for existing active request (downloaded/available) for this ASIN
   const existingActiveRequest = await prisma.request.findFirst({
@@ -145,6 +155,7 @@ export async function createRequestForUser(
         seriesAsin,
         language,
         publisher,
+        versionLabel,
         status: 'requested',
       },
     });
@@ -161,6 +172,7 @@ export async function createRequestForUser(
     if (seriesAsin) updates.seriesAsin = seriesAsin;
     if (language) updates.language = language;
     if (publisher) updates.publisher = publisher;
+    if (versionLabel && versionLabel !== audiobookRecord.versionLabel) updates.versionLabel = versionLabel;
 
     if (Object.keys(updates).length > 0) {
       audiobookRecord = await prisma.audiobook.update({
@@ -234,7 +246,9 @@ export async function createRequestForUser(
     return { success: false, reason: 'user_not_found', message: 'User not found' };
   }
 
-  if (user.role === 'admin') {
+  if (forceApproval) {
+    needsApproval = true;
+  } else if (user.role === 'admin') {
     needsApproval = false;
   } else {
     if (user.autoApproveRequests === true) {

@@ -183,6 +183,12 @@ model Audiobook {
   language    String? // e.g. "english", "german"
   publisher   String? // Publisher name from Audible
 
+  // Alternate-version label (e.g. "Dramatized Adaptation", "Narrated by Stephen Fry").
+  // Set when a watched series with allowAlternateVersions requests a non-preferred
+  // version. At import it is appended to the series name and title folder so the
+  // library shows it as its own series and it can't collide with the main version.
+  versionLabel String? @map("version_label")
+
   // Request tracking
   status String @default("requested") // requested, downloading, processing, completed, failed
 
@@ -680,6 +686,11 @@ model WatchedSeries {
   seriesTitle   String    @map("series_title")
   coverArtUrl   String?   @map("cover_art_url") @db.Text
   lastCheckedAt DateTime? @map("last_checked_at")
+
+  // When true, other versions of a book (dramatized, full cast, other narrators) are
+  // also requested — always pending admin approval — and imported as their own series.
+  // When false (default), only one version per book is ever auto-requested.
+  allowAlternateVersions Boolean @default(false) @map("allow_alternate_versions")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 

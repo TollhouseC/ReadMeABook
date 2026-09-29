@@ -585,4 +585,73 @@ describe('processWatchedLists', () => {
 
     expect(stats.seriesChecked).toBe(1);
   });
+  describe('duplicate versions', () => {
+    const standard = { asin: 'B0STANDARD', title: 'Mistborn: The Final Empire', author: 'Brandon Sanderson', narrator: 'Michael Kramer', rating: 4.7 };
+    const dramatized = { asin: 'B0DRAMATIZ', title: 'Mistborn: The Final Empire (Dramatized Adaptation)', author: 'Brandon Sanderson', narrator: 'Full Cast', rating: 4.8 };
+
+    function watchSeries(allowAlternateVersions: boolean) {
+      prismaMock.watchedSeries.findMany.mockResolvedValue([
+        {
+          id: 'ws-v',
+          userId: 'user-1',
+          seriesAsin: 'B00MISTBRN',
+          seriesTitle: 'Mistborn',
+          coverArtUrl: null,
+          lastCheckedAt: null,
+          allowAlternateVersions,
+          user: { id: 'user-1', plexUsername: 'testuser' },
+        },
+      ]);
+      prismaMock.watchedAuthor.findMany.mockResolvedValue([]);
+      prismaMock.watchedSeries.update.mockResolvedValue({});
+      prismaMock.audiobook.findMany.mockResolvedValue([]); // nothing requested yet
+      mockScrapeSeriesPage.mockResolvedValueOnce({
+        asin: 'B00MISTBRN', title: 'Mistborn', bookCount: 2, books: [dramatized, standard], hasMore: false, page: 1,
+      });
+      mockDeduplicateAndCollectGroups.mockReturnValue({ books: [dramatized, standard], groups: [] });
+      mockCreateRequestForUser.mockResolvedValue({ success: true, request: {} });
+    }
+
+    it('requests only the standard version by default and skips the dramatization', async () => {
+      watchSeries(false);
+
+      const { processWatchedLists } = await import('@/lib/services/watched-lists.service');
+      const stats = await processWatchedLists();
+
+      expect(mockCreateRequestForUser).toHaveBeenCalledTimes(1);
+      expect(mockCreateRequestForUser).toHaveBeenCalledWith('user-1', expect.objectContaining({ asin: 'B0STANDARD' }));
+      expect(stats.requestsCreated).toBe(1);
+      expect(stats.skippedDuplicateVersion).toBe(1);
+      expect(stats.alternateVersionsQueued).toBe(0);
+    });
+
+    it('skips both versions when the library already has one of them', async () => {
+      watchSeries(false);
+      prismaMock.plexLibrary.findMany.mockResolvedValue([{ asin: 'B0DRAMATIZ', title: dramatized.title, author: dramatized.author }]);
+
+      const { processWatchedLists } = await import('@/lib/services/watched-lists.service');
+      const stats = await processWatchedLists();
+
+      expect(mockCreateRequestForUser).not.toHaveBeenCalled();
+      expect(stats.skippedOwned).toBe(1);
+      expect(stats.skippedDuplicateVersion).toBe(1);
+    });
+
+    it('queues the dramatization for admin approval with a label when the series opts in', async () => {
+      watchSeries(true);
+
+      const { processWatchedLists } = await import('@/lib/services/watched-lists.service');
+      const stats = await processWatchedLists();
+
+      expect(mockCreateRequestForUser).toHaveBeenCalledTimes(2);
+      expect(mockCreateRequestForUser).toHaveBeenCalledWith('user-1', expect.objectContaining({ asin: 'B0STANDARD' }));
+      expect(mockCreateRequestForUser).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ asin: 'B0DRAMATIZ' }),
+        { forceApproval: true, versionLabel: 'Dramatized Adaptation' }
+      );
+      expect(stats.requestsCreated).toBe(1);
+      expect(stats.alternateVersionsQueued).toBe(1);
+    });
+  });
 });

@@ -21,6 +21,7 @@ import {
 } from './chapter-merger';
 import { prisma } from '../db';
 import { substituteTemplate, buildRenamedFilename, type TemplateVariables } from './path-template.util';
+import { applyVersionLabel } from './book-versions';
 import { AUDIO_EXTENSIONS } from '../constants/audio-formats';
 
 export interface AudiobookMetadata {
@@ -32,6 +33,8 @@ export interface AudiobookMetadata {
   asin?: string;
   series?: string;
   seriesPart?: string;
+  /** Alternate-version label; appended to series + title at import (see book-versions.ts) */
+  versionLabel?: string;
 }
 
 export interface OrganizationResult {
@@ -87,6 +90,10 @@ export class FileOrganizer {
   ): Promise<OrganizationResult> {
     // Create logger if config provided
     const logger = loggerConfig ? RMABLogger.forJob(loggerConfig.jobId, loggerConfig.context) : null;
+
+    // Alternate versions: label series + title once so the folder path, embedded tags,
+    // merged filename and rename template all see the same values
+    audiobook = applyVersionLabel(audiobook, audiobook.versionLabel);
 
     const result: OrganizationResult = {
       success: false,
@@ -857,13 +864,16 @@ export class FileOrganizer {
    */
   async organizeEbook(
     downloadPath: string,
-    metadata: { title: string; author: string; narrator?: string; asin?: string; year?: number; series?: string; seriesPart?: string },
+    metadata: { title: string; author: string; narrator?: string; asin?: string; year?: number; series?: string; seriesPart?: string; versionLabel?: string },
     template: string,
     loggerConfig?: LoggerConfig,
     isIndexerDownload: boolean = false,
     renameConfig?: { enabled: boolean; template: string }
   ): Promise<EbookOrganizationResult> {
     const logger = loggerConfig ? RMABLogger.forJob(loggerConfig.jobId, loggerConfig.context) : null;
+
+    // Same labelling as the audiobook so the sidecar lands next to its version's folder
+    metadata = applyVersionLabel(metadata, metadata.versionLabel);
 
     const result: EbookOrganizationResult = {
       success: false,

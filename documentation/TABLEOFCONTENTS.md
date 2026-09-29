@@ -41,6 +41,11 @@
 - **Hook factory (createShelfHooks)** → [backend/services/goodreads-sync.md](backend/services/goodreads-sync.md#hook-factory)
 - **Adding a new shelf provider** → [backend/services/goodreads-sync.md](backend/services/goodreads-sync.md#adding-a-new-provider)
 
+## Watched Lists (Series & Authors)
+- **Auto-request new releases from watched series/authors** → [features/watched-lists.md](features/watched-lists.md)
+- **Duplicate versions (dramatized, full cast, other narrators) — one per book** → [features/watched-lists.md](features/watched-lists.md#duplicate-versions)
+- **Alternate versions opt-in (admin approval, own series in library)** → [features/watched-lists.md](features/watched-lists.md#alternate-versions-per-series-opt-in)
+
 ## Audible Integration
 - **Web scraping (popular, new releases)** → [integrations/audible.md](integrations/audible.md)
 - **Database caching, real-time matching** → [integrations/audible.md](integrations/audible.md)
@@ -69,6 +74,7 @@
 
 ## Background Jobs
 - **Bull queue, processors, retry logic** → [backend/services/jobs.md](backend/services/jobs.md)
+- **Stalled downloads (24h no progress → blacklist + re-search)** → [backend/services/scheduler.md](backend/services/scheduler.md#stalled-download-detection)
 - **Scheduled/recurring jobs (cron)** → [backend/services/scheduler.md](backend/services/scheduler.md)
 - **Job types:** search, download monitor, organize, Plex scan, cleanup, retries
 

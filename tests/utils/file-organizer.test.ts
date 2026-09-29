@@ -143,6 +143,42 @@ describe('file organizer', () => {
     expect(metadataMock.tagMultipleFiles).not.toHaveBeenCalled();
   });
 
+  it('puts an alternate version in its own series and title folder', async () => {
+    configState.values.set('metadata_tagging_enabled', 'false');
+    configState.values.set('ebook_sidecar_enabled', 'false');
+
+    fsMock.stat.mockResolvedValue({ isFile: () => true });
+    fsMock.access.mockImplementation(async (filePath: string) => {
+      if (filePath === '/downloads/hp1.m4b') return undefined;
+      throw new Error('missing');
+    });
+    fsMock.mkdir.mockResolvedValue(undefined);
+    copyFileMock.copyFile.mockResolvedValue(undefined);
+    fsMock.chmod.mockResolvedValue(undefined);
+
+    const organizer = new FileOrganizer('/media', '/tmp');
+    const result = await organizer.organize(
+      '/downloads/hp1.m4b',
+      {
+        title: "Harry Potter and the Sorcerer's Stone",
+        author: 'J.K. Rowling',
+        series: 'Harry Potter',
+        seriesPart: '1',
+        versionLabel: 'Narrated by Stephen Fry',
+      },
+      '{author}/{series}/{title}'
+    );
+
+    // Same-title narration variant can't collide with the main version's folder
+    expect(result.success).toBe(true);
+    expect(result.targetPath).toBe(path.join(
+      '/media',
+      'J.K. Rowling',
+      'Harry Potter (Narrated by Stephen Fry)',
+      "Harry Potter and the Sorcerer's Stone (Narrated by Stephen Fry)"
+    ));
+  });
+
   it('returns errors when no audiobook files are found', async () => {
     const organizer = new FileOrganizer('/media', '/tmp');
     (organizer as any).findAudiobookFiles = vi.fn().mockResolvedValue({

@@ -43,6 +43,7 @@ interface PendingApprovalRequest {
     author: string;
     coverArtUrl: string | null;
     audibleAsin: string | null;
+    versionLabel?: string | null;
   };
   user: {
     id: string;
@@ -222,6 +223,14 @@ function PendingApprovalSection({ requests }: { requests: PendingApprovalRequest
                     <p className="text-sm text-gray-600 dark:text-gray-400 truncate">
                       {request.audiobook.author}
                     </p>
+                    {request.audiobook.versionLabel && (
+                      <span
+                        className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-500/20"
+                        title="Alternate version from a watched series — imports as its own series"
+                      >
+                        Alternate version · {request.audiobook.versionLabel}
+                      </span>
+                    )}
 
                     {/* User Info */}
                     <div className="flex items-center gap-2 mt-2">
