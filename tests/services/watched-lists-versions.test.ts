@@ -71,6 +71,45 @@ describe('planVersionRequests — default (alternates off)', () => {
   });
 });
 
+describe('planVersionRequests — split dramatizations (Red Rising / GraphicAudio)', () => {
+  const pb = (asin: string, title: string, narrator = 'Full Cast'): AudibleAudiobook =>
+    ({ asin, title, author: 'Pierce Brown', narrator });
+  const goldenSon = pb('GS', 'Golden Son', 'Tim Gerard Reynolds');
+  const gsPart1 = pb('GS-P1', 'Golden Son (Part 1 of 2) (Dramatized Adaptation)');
+  const gsPart2 = pb('GS-P2', 'Golden Son (Part 2 of 2) (Dramatized Adaptation)');
+  const lightBringerPart1 = pb('LB-P1', 'Light Bringer (1 of 3) [Dramatized Adaptation]');
+
+  it('skips every dramatized part when the standard version is owned', async () => {
+    const result = await plan([gsPart1, goldenSon, gsPart2], ctx({ ownedAsins: new Set(['GS']) }));
+
+    expect(result.GS.action).toBe('skip_owned');
+    expect(result['GS-P1'].action).toBe('skip_duplicate_version');
+    expect(result['GS-P2'].action).toBe('skip_duplicate_version');
+  });
+
+  it('requests only the standard version when nothing is owned yet', async () => {
+    const result = await plan([gsPart1, gsPart2, goldenSon], ctx());
+
+    expect(result.GS.action).toBe('request');
+    expect(result['GS-P1'].action).toBe('skip_duplicate_version');
+    expect(result['GS-P2'].action).toBe('skip_duplicate_version');
+  });
+
+  it('skips a dramatized part whose standard version is already requested', async () => {
+    const lightBringer = pb('LB', 'Light Bringer', 'Tim Gerard Reynolds');
+    const result = await plan([lightBringerPart1, lightBringer], ctx({ requestedAsins: new Set(['LB']) }));
+
+    expect(result['LB-P1'].action).toBe('skip_duplicate_version');
+  });
+
+  it('with alternates on, requests each part for approval under one label', async () => {
+    const result = await plan([goldenSon, gsPart1, gsPart2], ctx({ allowAlternateVersions: true, ownedAsins: new Set(['GS']) }));
+
+    expect(result['GS-P1']).toMatchObject({ action: 'request_alternate', versionLabel: 'Dramatized Adaptation' });
+    expect(result['GS-P2']).toMatchObject({ action: 'request_alternate', versionLabel: 'Dramatized Adaptation' });
+  });
+});
+
 describe('planVersionRequests — alternates on', () => {
   it('requests the standard version normally and queues the rest for approval with a label', async () => {
     const result = await plan([dramatized, standard], ctx({ allowAlternateVersions: true }));

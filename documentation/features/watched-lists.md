@@ -15,6 +15,8 @@ Users watch an Audible series or author; a nightly job scrapes it and auto-reque
   1. `deduplicate-audiobooks.ts` — same *recording* (title + narrator + duration). Collapses publisher re-listings (e.g. US/UK editions).
   2. `book-versions.ts` — same *work* (all versions). Catches dramatizations, full-cast, abridged, other narrators.
 - **Work key:** title with version markers stripped (in brackets or as a subtitle: dramatized/dramatization, full cast, abridged, unabridged, edition, version, audio/radio drama, graphic audio) but the real subtitle kept, + primary author. "Halo: The Fall of Reach" ≠ "Halo: Ghosts of Onyx".
+- **Split parts:** "N of M" part markers are stripped too — `(Part 1 of 2)`, `(1 of 3)`, `[Book 2 of 3]`, `(Pt. 1/2)`, trailing `, Part 1 of 2` — so a production split into parts (e.g. GraphicAudio "Golden Son (Part 1 of 2) (Dramatized Adaptation)") groups with the standard "Golden Son". A bare "Part 2" is kept (can be a separate book).
+- **Fixed (2026-09-30):** split dramatization parts were keyed as separate books (the "N of M" marker stayed in the key), so each was auto-requested despite the standard version being owned.
 - **Preferred version:** standard narration (no dramatized/full-cast/abridged marker, incl. "Full Cast" narrator) → highest rating → listing order.
 - **Planner** (`src/lib/services/watched-lists-versions.ts`, pure) — per work:
 

@@ -19,6 +19,15 @@ import type { AudibleAudiobook } from '../integrations/audible.service';
 const VERSION_KEYWORD_RE =
   /dramati[sz](?:ed|ation)|full[\s-]*cast|\b(?:un)?abridged\b|\bedition\b|\bversion\b|audio[\s-]*drama|radio[\s-]*drama|graphic\s*audio/i;
 
+/**
+ * Split-production markers in "N of M" form — "(Part 1 of 2)", "(1 of 3)",
+ * "[Book 2 of 3]", "(Pt. 1/2)". Parts of one production are versions of the same
+ * book (e.g. GraphicAudio splits a dramatization into parts). A bare "Part 2" is NOT
+ * matched: that can be a genuinely separate book.
+ */
+const SPLIT_PART_SEGMENT_RE = /^[([]\s*(?:(?:part|pt|book|bk|vol|volume|disc|cd)\.?\s*)?\d+\s*(?:of|\/)\s*\d+\s*[)\]]$/i;
+const TRAILING_SPLIT_PART_RE = /[\s,:–—-]+(?:(?:part|pt|book|bk|vol|volume)\.?\s*)?\d+\s*(?:of|\/)\s*\d+\s*$/i;
+
 /** Trailing descriptors like "A Novel" that some listings add and others omit. */
 const TRAILING_DESCRIPTOR_RE = /\s*[-:,]?\s+a\s+(novel|memoir|thriller|mystery|romance|story|tale|novella)\s*$/i;
 
@@ -50,12 +59,14 @@ function primaryAuthor(author: string): string {
 
 /**
  * Title with version markers removed: bracketed segments and subtitles that contain
- * a version keyword are dropped; a real subtitle is kept.
+ * a version keyword are dropped, as are "N of M" split-part markers; a real subtitle
+ * is kept.
  */
 export function stripVersionMarkers(title: string): string {
   let t = (title || '').replace(/[([][^)\]]*[)\]]/g, segment =>
-    VERSION_KEYWORD_RE.test(segment) ? ' ' : segment
+    VERSION_KEYWORD_RE.test(segment) || SPLIT_PART_SEGMENT_RE.test(segment) ? ' ' : segment
   );
+  t = t.replace(/\s+/g, ' ').trim().replace(TRAILING_SPLIT_PART_RE, '');
   t = t.replace(TRAILING_DESCRIPTOR_RE, '');
 
   const parts = t.split(SUBTITLE_SPLIT_RE);

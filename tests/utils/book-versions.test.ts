@@ -48,6 +48,28 @@ describe('stripVersionMarkers / getWorkKey', () => {
       .not.toBe(getWorkKey(book('Dune', { author: 'Someone Else' })));
   });
 
+  it('groups split dramatization parts with the standard version (GraphicAudio style)', () => {
+    const rr = (title: string) => getWorkKey({ title, author: 'Pierce Brown' });
+    expect(rr('Golden Son (Part 1 of 2) (Dramatized Adaptation)')).toBe(rr('Golden Son'));
+    expect(rr('Golden Son (Part 2 of 2) (Dramatized Adaptation)')).toBe(rr('Golden Son'));
+    expect(rr('Morning Star (2 of 2) (Dramatized Adaptation)')).toBe(rr('Morning Star'));
+    expect(rr('Light Bringer (1 of 3) [Dramatized Adaptation]')).toBe(rr('Light Bringer'));
+  });
+
+  it('strips "N of M" part markers in any bracket or trailing form', () => {
+    expect(stripVersionMarkers('Dune (Pt. 1/2)')).toBe('Dune');
+    expect(stripVersionMarkers('Dune [Book 2 of 3]')).toBe('Dune');
+    expect(stripVersionMarkers('Dune, Part 1 of 2')).toBe('Dune');
+    expect(stripVersionMarkers('Dune: Part 2 of 2')).toBe('Dune');
+    expect(stripVersionMarkers('Dune - 1 of 3')).toBe('Dune');
+  });
+
+  it('keeps a bare "Part 2" and numbers that are part of the title', () => {
+    expect(getWorkKey(book('Dune Part Two'))).not.toBe(getWorkKey(book('Dune')));
+    expect(stripVersionMarkers('Catch-22')).toBe('Catch-22');
+    expect(stripVersionMarkers('Fahrenheit 451')).toBe('Fahrenheit 451');
+  });
+
   it('ignores trailing descriptors like "A Novel"', () => {
     expect(getWorkKey(book('Project Hail Mary: A Novel'))).toBe(getWorkKey(book('Project Hail Mary')));
   });
