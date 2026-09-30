@@ -203,10 +203,10 @@ describe('RecentRequestsTable', () => {
     render(<RecentRequestsTable />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete Trigger' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Clear Request' }));
 
     await waitFor(() => {
-      expect(fetchWithAuthMock).toHaveBeenCalledWith('/api/admin/requests/req-1', {
+      expect(fetchWithAuthMock).toHaveBeenCalledWith('/api/admin/requests/req-1?deleteFiles=false', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -215,7 +215,28 @@ describe('RecentRequestsTable', () => {
     // Should mutate the current API URL and metrics
     expect(mutateMock).toHaveBeenCalledWith(expect.stringContaining('/api/admin/requests'));
     expect(mutateMock).toHaveBeenCalledWith('/api/admin/metrics');
-    expect(toastMock.success).toHaveBeenCalledWith('Request deleted successfully');
+    expect(toastMock.success).toHaveBeenCalledWith('Request cleared (media kept)');
+  });
+
+  it('deletes media files only when the checkbox is ticked', async () => {
+    fetchWithAuthMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true }),
+    });
+
+    render(<RecentRequestsTable />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Trigger' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Also delete media files' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => {
+      expect(fetchWithAuthMock).toHaveBeenCalledWith('/api/admin/requests/req-1?deleteFiles=true', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    expect(toastMock.success).toHaveBeenCalledWith('Request and media files deleted');
   });
 
   it('warns when ebook fetch fails', async () => {

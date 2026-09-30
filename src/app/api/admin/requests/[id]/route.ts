@@ -17,7 +17,8 @@ const logger = RMABLogger.create('API.Admin.Requests');
  * This endpoint:
  * 1. Validates admin authorization
  * 2. Soft deletes the request (sets deletedAt timestamp)
- * 3. Deletes media files from the title folder
+ * 3. Deletes media files + library entry ONLY with ?deleteFiles=true
+ *    (default: request-only — files, Plex/ABS item and library record kept)
  * 4. Handles torrents based on seeding configuration:
  *    - Unlimited seeding (0): Keeps torrent, stops monitoring
  *    - Seeding complete: Deletes torrent + files
@@ -40,8 +41,10 @@ export async function DELETE(
 
         const { id } = await params;
 
+        const deleteMedia = request.nextUrl.searchParams.get('deleteFiles') === 'true';
+
         // Perform soft delete with cleanup
-        const result = await deleteRequest(id, req.user.id);
+        const result = await deleteRequest(id, req.user.id, { deleteMedia });
 
         if (!result.success) {
           return NextResponse.json(

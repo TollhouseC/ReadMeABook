@@ -183,6 +183,7 @@ export function RecentRequestsTable({ ebookSidecarEnabled = false, annasArchiveB
 
   // Dialog states
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteFiles, setDeleteFiles] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<{
     id: string;
     title: string;
@@ -330,6 +331,7 @@ export function RecentRequestsTable({ ebookSidecarEnabled = false, annasArchiveB
 
   const handleDeleteClick = (requestId: string, title: string) => {
     setSelectedRequest({ id: requestId, title });
+    setDeleteFiles(false);
     setShowDeleteConfirm(true);
   };
 
@@ -339,7 +341,7 @@ export function RecentRequestsTable({ ebookSidecarEnabled = false, annasArchiveB
     setIsDeleting(true);
 
     try {
-      const response = await fetchWithAuth(`/api/admin/requests/${selectedRequest.id}`, {
+      const response = await fetchWithAuth(`/api/admin/requests/${selectedRequest.id}?deleteFiles=${deleteFiles}`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
@@ -358,7 +360,7 @@ export function RecentRequestsTable({ ebookSidecarEnabled = false, annasArchiveB
 
       setShowDeleteConfirm(false);
       setSelectedRequest(null);
-      toast.success('Request deleted successfully');
+      toast.success(deleteFiles ? 'Request and media files deleted' : 'Request cleared (media kept)');
     } catch (error) {
       console.error('[Admin] Failed to delete request:', error);
       toast.error(`Failed to delete request: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -872,16 +874,31 @@ export function RecentRequestsTable({ ebookSidecarEnabled = false, annasArchiveB
               </p>
               <ul className="list-disc list-inside space-y-1 text-sm">
                 <li>Remove the request (allowing it to be re-requested)</li>
-                <li>Delete files from the media directory</li>
                 <li>Keep torrent seeding if time remaining</li>
+                {deleteFiles ? (
+                  <li className="text-red-600 dark:text-red-400">
+                    Delete files from the media directory and remove the book from your library
+                  </li>
+                ) : (
+                  <li>Keep media files and the library entry</li>
+                )}
               </ul>
+              <label className="mt-3 flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={deleteFiles}
+                  onChange={(e) => setDeleteFiles(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                />
+                Also delete media files
+              </label>
               <p className="mt-3 font-semibold">Are you sure?</p>
             </div>
           ) : (
             ''
           )
         }
-        confirmLabel={isDeleting ? 'Deleting...' : 'Delete'}
+        confirmLabel={isDeleting ? 'Deleting...' : deleteFiles ? 'Delete' : 'Clear Request'}
         cancelLabel="Cancel"
         confirmVariant="danger"
         onConfirm={handleDeleteConfirm}

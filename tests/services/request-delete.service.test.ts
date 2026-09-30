@@ -476,4 +476,66 @@ describe('deleteRequest', () => {
       })
     );
   });
+
+  it('clears only the request when deleteMedia is false (files + library kept)', async () => {
+    prismaMock.request.findFirst.mockResolvedValue({
+      id: 'req-8',
+      audiobook: {
+        id: 'ab-8',
+        title: 'Owned Book',
+        author: 'Author',
+        audibleAsin: 'ASIN8',
+        plexGuid: 'plex-8',
+        absItemId: 'abs-8',
+      },
+      downloadHistory: [],
+    });
+    configServiceMock.get.mockResolvedValue('/media');
+    configServiceMock.getBackendMode.mockResolvedValue('audiobookshelf');
+    prismaMock.request.update.mockResolvedValue({});
+
+    const { deleteABSItem } = await import('@/lib/services/audiobookshelf/api');
+    const { deleteRequest } = await import('@/lib/services/request-delete.service');
+    const result = await deleteRequest('req-8', 'admin-8', { deleteMedia: false });
+
+    expect(result).toMatchObject({ success: true, filesDeleted: false });
+    expect(fsMock.rm).not.toHaveBeenCalled();
+    expect(deleteABSItem).not.toHaveBeenCalled();
+    expect(prismaMock.plexLibrary.deleteMany).not.toHaveBeenCalled();
+    expect(prismaMock.audiobook.update).not.toHaveBeenCalled(); // still linked / available
+    expect(prismaMock.request.update).toHaveBeenCalledWith({
+      where: { id: 'req-8' },
+      data: expect.objectContaining({ deletedBy: 'admin-8' }),
+    });
+  });
+
+  it('deletes media by default (reported-issue replacement path)', async () => {
+    prismaMock.request.findFirst.mockResolvedValue({
+      id: 'req-9',
+      audiobook: {
+        id: 'ab-9',
+        title: 'Book',
+        author: 'Author',
+        audibleAsin: 'ASIN9',
+        plexGuid: 'plex-9',
+        absItemId: null,
+      },
+      downloadHistory: [],
+    });
+    configServiceMock.get.mockImplementation(async (key: string) => (key === 'media_dir' ? '/media' : null));
+    configServiceMock.getBackendMode.mockResolvedValue('plex');
+    prismaMock.plexLibrary.findUnique.mockResolvedValue(null);
+    prismaMock.plexLibrary.deleteMany.mockResolvedValue({ count: 1 });
+    fsMock.access.mockResolvedValue(undefined);
+    fsMock.rm.mockResolvedValue(undefined);
+    prismaMock.request.update.mockResolvedValue({});
+    prismaMock.audiobook.update.mockResolvedValue({});
+
+    const { deleteRequest } = await import('@/lib/services/request-delete.service');
+    const result = await deleteRequest('req-9', 'admin-9');
+
+    expect(result.filesDeleted).toBe(true);
+    expect(fsMock.rm).toHaveBeenCalled();
+    expect(prismaMock.plexLibrary.deleteMany).toHaveBeenCalled();
+  });
 });

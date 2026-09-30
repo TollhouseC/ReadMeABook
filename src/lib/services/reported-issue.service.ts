@@ -180,7 +180,7 @@ export async function replaceAudiobook(
   if (existingRequest) {
     // Has an RMAB request — use deleteRequest which handles torrent cleanup, files, library backend
     const { deleteRequest } = await import('./request-delete.service');
-    const deleteResult = await deleteRequest(existingRequest.id, adminUserId);
+    const deleteResult = await deleteRequest(existingRequest.id, adminUserId, { deleteMedia: true });
     if (!deleteResult.success) {
       logger.warn(`deleteRequest partial failure for ${existingRequest.id}: ${deleteResult.error}`);
       // Continue anyway - we want replacement to proceed

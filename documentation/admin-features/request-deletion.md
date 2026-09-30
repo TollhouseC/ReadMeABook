@@ -20,6 +20,16 @@ Allows admins to delete requests from the admin dashboard with smart handling of
 4. **Confirmation Dialog** - Prevents accidental deletions
 5. **Automatic Cleanup** - Scheduled job handles orphaned downloads
 6. **Reset & Re-request** - Un-sticks a request wedged at any status and re-fetches it
+7. **Clear vs Delete Media** - Delete defaults to request-only; media deletion is opt-in
+
+## Clear Request vs Delete Media
+
+- **UI:** Delete confirm dialog has an "Also delete media files" checkbox, **unchecked by default**. Button reads "Clear Request" (unchecked) / "Delete" (checked).
+- **API:** `DELETE /api/admin/requests/[id]?deleteFiles=true|false` — anything but `true` = request-only.
+- **Service:** `deleteRequest(id, adminId, { deleteMedia })` — `deleteMedia` defaults to `true` for internal callers (reported-issue replacement passes `true` explicitly).
+- **Request-only (`deleteMedia: false`):** soft-deletes request + child ebook requests and does download-client cleanup (download dir only). Skips: title-folder deletion, Plex/ABS item deletion, `plex_library` deletion, audiobook linkage reset → book stays "In Your Library".
+- **Use case:** clearing bugged requests for books already in the library.
+- **Media cleanup** (steps 3-4 below) lives in `src/lib/services/request-delete-media.ts` (`deleteRequestMedia`).
 
 ## Reset & Re-request (Admin Action)
 
@@ -245,6 +255,7 @@ where: {
 Backend:
 - prisma/schema.prisma (deletedAt, deletedBy fields)
 - src/lib/services/request-delete.service.ts (deletion logic)
+- src/lib/services/request-delete-media.ts (media files + library entry cleanup, opt-in)
 - src/app/api/admin/requests/[id]/route.ts (DELETE endpoint)
 - src/lib/processors/cleanup-seeded-torrents.processor.ts (orphaned cleanup)
 

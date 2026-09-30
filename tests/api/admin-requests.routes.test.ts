@@ -35,6 +35,12 @@ vi.mock('@/lib/services/job-queue.service', () => ({
   getJobQueueService: () => jobQueueMock,
 }));
 
+function deleteReq(deleteFiles?: string) {
+  const url = new URL('http://localhost/api/admin/requests/req');
+  if (deleteFiles !== undefined) url.searchParams.set('deleteFiles', deleteFiles);
+  return { nextUrl: url };
+}
+
 describe('Admin requests routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -243,18 +249,35 @@ describe('Admin requests routes', () => {
     });
 
     const { DELETE } = await import('@/app/api/admin/requests/[id]/route');
-    const response = await DELETE({} as any, { params: Promise.resolve({ id: 'req-1' }) });
+    const response = await DELETE(deleteReq() as any, { params: Promise.resolve({ id: 'req-1' }) });
     const payload = await response.json();
 
     expect(payload.success).toBe(true);
-    expect(deleteRequestMock).toHaveBeenCalledWith('req-1', 'admin-1');
+    // Default is request-only: media files and library entry are kept
+    expect(deleteRequestMock).toHaveBeenCalledWith('req-1', 'admin-1', { deleteMedia: false });
+  });
+
+  it('deletes media only when ?deleteFiles=true', async () => {
+    deleteRequestMock.mockResolvedValueOnce({
+      success: true,
+      message: 'Deleted',
+      filesDeleted: true,
+      torrentsRemoved: 0,
+      torrentsKeptSeeding: 0,
+      torrentsKeptUnlimited: 0,
+    });
+
+    const { DELETE } = await import('@/app/api/admin/requests/[id]/route');
+    await DELETE(deleteReq('true') as any, { params: Promise.resolve({ id: 'req-1' }) });
+
+    expect(deleteRequestMock).toHaveBeenCalledWith('req-1', 'admin-1', { deleteMedia: true });
   });
 
   it('returns 401 when admin user is missing', async () => {
     authRequest.user = null;
 
     const { DELETE } = await import('@/app/api/admin/requests/[id]/route');
-    const response = await DELETE({} as any, { params: Promise.resolve({ id: 'req-2' }) });
+    const response = await DELETE(deleteReq() as any, { params: Promise.resolve({ id: 'req-2' }) });
     const payload = await response.json();
 
     expect(response.status).toBe(401);
@@ -269,7 +292,7 @@ describe('Admin requests routes', () => {
     });
 
     const { DELETE } = await import('@/app/api/admin/requests/[id]/route');
-    const response = await DELETE({} as any, { params: Promise.resolve({ id: 'req-3' }) });
+    const response = await DELETE(deleteReq() as any, { params: Promise.resolve({ id: 'req-3' }) });
     const payload = await response.json();
 
     expect(response.status).toBe(404);
@@ -284,7 +307,7 @@ describe('Admin requests routes', () => {
     });
 
     const { DELETE } = await import('@/app/api/admin/requests/[id]/route');
-    const response = await DELETE({} as any, { params: Promise.resolve({ id: 'req-4' }) });
+    const response = await DELETE(deleteReq() as any, { params: Promise.resolve({ id: 'req-4' }) });
     const payload = await response.json();
 
     expect(response.status).toBe(500);
