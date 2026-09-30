@@ -10,6 +10,7 @@ Audiobook metadata for discovery, search, and detail pages. All catalog operatio
 
 - **Primary data source:** Audible JSON catalog API, same endpoint used by the official Audible mobile apps. No authentication, no API key, no user credentials, no special headers.
 - **Per-ASIN details:** Audnexus (`api.audnex.us/books/{asin}`) remains primary; catalog API (`/1.0/catalog/products/{asin}`) is the fallback when Audnexus returns 404.
+- **Author ASIN:** first author with an ASIN (`firstAuthorAsin`). Audible omits it for authors without a linked profile (new releases, placeholder listings). If Audnexus (cached) has none, `fetchCatalogAuthorAsin()` checks the live catalog (`response_groups=contributors`, 1 retry, failures ignored) so a newly linked author is picked up immediately. Never persisted.
 - **HTML scraping:** Removed from `audible.service.ts`. The only remaining HTML path is `audible-series.ts` (series-page scraping, out of scope).
 - **`www.audible.<tld>`:** Still used by `audible-series.ts` and by `getBaseUrl()` for "View on Audible" link generation. Not used for any catalog operation.
 

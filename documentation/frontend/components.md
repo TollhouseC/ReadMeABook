@@ -31,6 +31,7 @@ src/components/
 - **AudiobookCard** ✅ - Cover, title, author, narrator, duration, request button, clickable to open details modal. Shows "Requested by [username]" when someone else has requested the book, "Requested" when current user has requested it
 - **AudiobookGrid** - Responsive grid (1/2/3/4 cols)
 - **AudiobookDetailsModal** ✅ - Full-screen modal with comprehensive metadata (description, genres, rating, release date, narrator, request functionality). Shows requesting user's name when applicable
+  - **Author link** (`AuthorLink.tsx`): `authorAsin` → `/authors/{asin}`; no ASIN → `/authors?q=<primary author>`; placeholder credits (Various, Full Cast, Anonymous, Unknown) → plain text. Switches to the author page automatically once Audible adds the ASIN.
 
 **Requests**
 - **RequestCard** ✅ - Cover, title, author, status badge, progress bar, timestamps, action buttons (cancel, manual search, interactive search)

@@ -992,6 +992,67 @@ describe('AudibleService', () => {
       expect(apiClientMock.get).not.toHaveBeenCalled();
     });
 
+    it('takes the author ASIN from the live catalog when Audnexus lacks it', async () => {
+      axiosMock.get.mockResolvedValueOnce({
+        data: { title: 'The Fires of December', authors: [{ name: 'Brandon Sanderson' }] },
+      });
+      apiClientMock.get.mockResolvedValue(apiResponse({
+        product: { asin: 'B0HGDJKKJ1', authors: [{ asin: 'B001IGFHW6', name: 'Brandon Sanderson' }] },
+      }));
+
+      const service = new AudibleService();
+      const details = await service.getAudiobookDetails('B0HGDJKKJ1');
+
+      expect(details?.authorAsin).toBe('B001IGFHW6');
+      expect(details?.title).toBe('The Fires of December'); // Audnexus data kept; only the ASIN filled in
+      expect(apiClientMock.get).toHaveBeenCalledWith(
+        '/1.0/catalog/products/B0HGDJKKJ1',
+        { params: { response_groups: 'contributors' } },
+      );
+    });
+
+    it('leaves the author ASIN unset when neither source has it', async () => {
+      axiosMock.get.mockResolvedValueOnce({
+        data: { title: 'They Cry', authors: [{ name: 'Glen Cook' }] },
+      });
+      apiClientMock.get.mockResolvedValue(apiResponse({
+        product: { asin: 'B0H361BYVY', title: 'They Cry', authors: [{ name: 'Glen Cook' }] },
+      }));
+
+      const service = new AudibleService();
+      const details = await service.getAudiobookDetails('B0H361BYVY');
+
+      expect(details?.title).toBe('They Cry');
+      expect(details?.authorAsin).toBeUndefined();
+    });
+
+    it('still returns Audnexus data when the catalog author lookup fails', async () => {
+      axiosMock.get.mockResolvedValueOnce({
+        data: { title: 'They Cry', authors: [{ name: 'Glen Cook' }] },
+      });
+      const error: Error & { response?: { status: number } } = new Error('Forbidden');
+      error.response = { status: 403 };
+      apiClientMock.get.mockRejectedValue(error);
+
+      const service = new AudibleService();
+      const details = await service.getAudiobookDetails('B0H361BYVY');
+
+      expect(details?.title).toBe('They Cry');
+      expect(details?.authorAsin).toBeUndefined();
+    });
+
+    it('uses the first author that has an ASIN', async () => {
+      axiosMock.get.mockResolvedValueOnce({
+        data: { title: 'Anthology', authors: [{ name: 'Unlinked Editor' }, { name: 'Linked Author', asin: 'A222' }] },
+      });
+
+      const service = new AudibleService();
+      const details = await service.getAudiobookDetails('B000CCCCCC');
+
+      expect(details?.authorAsin).toBe('A222');
+      expect(apiClientMock.get).not.toHaveBeenCalled();
+    });
+
     it('falls back to the catalog API when Audnexus returns 404', async () => {
       axiosMock.get.mockRejectedValueOnce({ response: { status: 404 }, message: 'Not found' });
 

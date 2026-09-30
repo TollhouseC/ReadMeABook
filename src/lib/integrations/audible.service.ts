@@ -133,9 +133,14 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+/** ASIN of the first listed author that has one (Audible omits it for unlinked authors). */
+function firstAuthorAsin(authors?: Array<{ asin?: string | null }>): string | undefined {
+  return authors?.find((a) => a.asin)?.asin ?? undefined;
+}
+
 function mapCatalogProduct(product: CatalogProduct): AudibleAudiobook {
   const author = product.authors?.map((a) => a.name).join(', ') ?? '';
-  const authorAsin = product.authors?.[0]?.asin ?? undefined;
+  const authorAsin = firstAuthorAsin(product.authors);
   const narrator =
     product.narrators && product.narrators.length > 0
       ? product.narrators.map((n) => n.name).join(', ')
@@ -640,6 +645,10 @@ export class AudibleService {
       const audnexusData = await this.fetchFromAudnexus(asin);
       if (audnexusData) {
         logger.info(` Successfully fetched from Audnexus for "${audnexusData.title}"`);
+        // Audnexus caches records; the live catalog may already have the author ASIN.
+        if (!audnexusData.authorAsin && audnexusData.author) {
+          audnexusData.authorAsin = await this.fetchCatalogAuthorAsin(asin);
+        }
         return audnexusData;
       }
 
@@ -674,7 +683,7 @@ export class AudibleService {
         asin,
         title: data.title || '',
         author: data.authors?.map((a: any) => a.name).join(', ') || '',
-        authorAsin: data.authors?.[0]?.asin || undefined,
+        authorAsin: firstAuthorAsin(data.authors),
         narrator: data.narrators?.map((n: any) => n.name).join(', ') || '',
         description: data.description || data.summary || '',
         coverArtUrl: data.image || '',
@@ -712,6 +721,25 @@ export class AudibleService {
         logger.warn(`Error fetching from Audnexus for ASIN ${asin}`, { error: error.message });
       }
       return null;
+    }
+  }
+
+  /** Author ASIN from the live catalog API (contributors only, one retry); undefined if absent or failed. */
+  private async fetchCatalogAuthorAsin(asin: string): Promise<string | undefined> {
+    try {
+      const { data: response } = await this.fetchWithRetry(
+        `/1.0/catalog/products/${asin}`,
+        { params: { response_groups: 'contributors' } },
+        1,
+        this.apiClient,
+      );
+      const product: CatalogProduct | undefined = response.data?.product;
+      return firstAuthorAsin(product?.authors);
+    } catch (error) {
+      logger.debug(`Catalog author ASIN lookup failed for ${asin}`, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
     }
   }
 

@@ -19,6 +19,7 @@ import { usePreferences } from '@/contexts/PreferencesContext';
 import { InteractiveTorrentSearchModal } from '@/components/requests/InteractiveTorrentSearchModal';
 import { ReportIssueModal } from '@/components/audiobooks/ReportIssueModal';
 import { ManualImportBrowser } from '@/components/audiobooks/ManualImportBrowser';
+import { AuthorLink } from '@/components/audiobooks/AuthorLink';
 import { FolderArrowDownIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
 import { EyeSlashIcon as EyeSlashSolidIcon } from '@heroicons/react/24/solid';
 import { fetchWithAuth } from '@/lib/utils/api';
@@ -362,20 +363,7 @@ export function AudiobookDetailsModal({
                     {audiobook.title}
                   </h2>
                   <p className="mt-2 text-base sm:text-lg text-gray-600 dark:text-gray-300">
-                    {audiobook.authorAsin ? (
-                      <Link
-                        href={`/authors/${audiobook.authorAsin}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onClose();
-                        }}
-                        className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-                      >
-                        {audiobook.author}
-                      </Link>
-                    ) : (
-                      audiobook.author
-                    )}
+                    <AuthorLink author={audiobook.author} authorAsin={audiobook.authorAsin} onNavigate={onClose} />
                   </p>
                   {audiobook.narrator && (
                     <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
