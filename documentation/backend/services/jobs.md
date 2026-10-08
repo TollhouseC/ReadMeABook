@@ -78,6 +78,19 @@ Manages background job queue using Bull (Redis-backed) for async tasks: searchin
 - Same matching logic as scan_plex (ASIN priority, fuzzy fallback)
 - Clears error state and retry counters on match
 
+## Live Progress & Cancel (long jobs)
+- **Fields:** `jobs.progress` (JSON `{ current, total|null, label, detail?, cancellable, updatedAt }`), `jobs.cancel_requested` (bool). Status `cancelled` when a processor returns `{ cancelled: true }`.
+- **Helper:** `src/lib/utils/job-progress.ts` → `createJobProgress(jobId, label, { total, cancellable })` (`update` throttled to 1 write/2s, `force`, `cancellable`; `finish`; `isCancelled` cached 2s; `cancelledSync` for sync callbacks). `requestJobCancel(jobId)`.
+- **Long job types** (`LONG_JOB_TYPES` in job-queue.service; seeded with `{label:'Queued'}` progress when queued): `fix_chapters`, `fix_library_layout`, `merge_library_book`, `plex_library_scan`, `scan_plex`, `check_watched_lists`.
+- **Cancel checkpoints (clean):**
+  - Chapter check/fix, library layout: between items; summary logged; library scan only if something changed.
+  - Merge: ffmpeg killed via `MergeOptions.shouldCancel` (error `MERGE_CANCELLED`), or before the file swap; originals untouched. Not cancellable once swapping.
+  - Library scan: only during the item pass → returns before stale cleanup/matching (a partial scan never cancels requests); not cancellable afterwards.
+  - Watched lists: between series/authors.
+  - Single-book chapter fix: step labels only, not cancellable (seconds).
+- **API:** `GET /api/admin/job-runs` (long jobs running/queued, or finished <60s), `POST /api/admin/job-runs/[id]/cancel` (queued → removed via `cancelJob`; active + cancellable → flag; else 400), `GET /api/admin/job-runs/[id]/events?after=` (job id or Bull id; inclusive `after`, 500 lines/page).
+- **UI:** header `RunningJobsIndicator` (admins; hidden when idle; polls 3s while running, 30s otherwise) → `RunningJobsList` (bars, Cancel / Remove from queue, View log). Jobs page: "Running now" + per-scheduled-job "Log" (last run via `lastRunJobId`). `JobLogModal`: live log (2s poll while running, pages long logs), filter + quick filters (Would fix, Fixed, Corrupt, Nested, Moved, Failed). Labels: `src/lib/constants/job-labels.ts`.
+
 ## Job Payloads
 
 All payloads now include `jobId` (database job ID) automatically added by the job queue service.
