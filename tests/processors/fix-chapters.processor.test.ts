@@ -14,12 +14,12 @@ const config: Record<string, string> = {};
 const configMock = vi.hoisted(() => ({ get: vi.fn(), getBackendMode: vi.fn() }));
 const libraryServiceMock = vi.hoisted(() => ({ triggerLibraryScan: vi.fn() }));
 const fixMock = vi.hoisted(() => vi.fn());
-const getABSItemMock = vi.hoisted(() => vi.fn());
+const getABSLibraryItemsMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/db', () => ({ prisma: prismaMock }));
 vi.mock('@/lib/services/config.service', () => ({ getConfigService: () => configMock }));
 vi.mock('@/lib/services/library', () => ({ getLibraryService: () => libraryServiceMock }));
-vi.mock('@/lib/services/audiobookshelf/api', () => ({ getABSItem: getABSItemMock }));
+vi.mock('@/lib/services/audiobookshelf/api', () => ({ getABSLibraryItems: getABSLibraryItemsMock, getABSItem: vi.fn() }));
 vi.mock('@/lib/utils/chapter-fixer', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/utils/chapter-fixer')>()),
   fixChaptersIfBetter: fixMock,
@@ -91,25 +91,38 @@ describe('processFixChapters — library-wide', () => {
     expect(libraryServiceMock.triggerLibraryScan).not.toHaveBeenCalled();
   });
 
-  it('apply mode includes reachable Audiobookshelf items and skips duplicates/unreachable', async () => {
+  it('apply mode translates Audiobookshelf paths from its own mount and covers the whole library', async () => {
     configMock.getBackendMode.mockResolvedValue('audiobookshelf');
     Object.assign(config, { 'audiobookshelf.trigger_scan_after_import': 'true', 'audiobookshelf.library_id': 'abs-lib' });
     const imported = await makeBook('Imported', ['Imported.m4b']);
     const absOnly = await makeBook('Abs Only', ['Abs Only.m4b']);
-    prismaMock.audiobook.findMany.mockResolvedValue([book('i', 'Imported', imported)]);
-    prismaMock.plexLibrary.findMany.mockResolvedValue([
-      { plexGuid: 'abs-1', asin: 'ASIN-i', title: 'Imported' }, // same folder as the imported book
-      { plexGuid: 'abs-2', asin: 'ASIN-x', title: 'Abs Only' },
-      { plexGuid: 'abs-3', asin: 'ASIN-y', title: 'Elsewhere' },
+    await fs.writeFile(path.join(mediaDir, 'Root Single.m4b'), 'x'); // ABS item that is a file at the library root
+    prismaMock.audiobook.findMany.mockResolvedValue([book('i', 'Imported', imported, { absItemId: 'abs-1' })]);
+    prismaMock.plexLibrary.findMany.mockResolvedValue([{ plexGuid: 'abs-4', asin: 'ASIN-cached' }]);
+    // ABS sees the library at /audiobooks; ReadMeABook at mediaDir
+    getABSLibraryItemsMock.mockResolvedValue([
+      { id: 'abs-1', path: '/audiobooks/Author/Imported', relPath: 'Author/Imported', isFile: false, media: { metadata: { asin: 'ASIN-i', title: 'Imported' } } },
+      { id: 'abs-2', path: '/audiobooks/Author/Abs Only', relPath: 'Author/Abs Only', isFile: false, media: { metadata: { asin: 'ASIN-x', title: 'Abs Only' } } },
+      { id: 'abs-3', path: '/audiobooks/Root Single.m4b', relPath: 'Root Single.m4b', isFile: true, media: { metadata: { asin: 'ASIN-r', title: 'Root Single' } } },
+      { id: 'abs-4', path: '/audiobooks/Author/Gone', relPath: 'Author/Gone', isFile: false, media: { metadata: { title: 'Gone' } } },
+      { id: 'abs-5', path: '/audiobooks/Author/No Asin', relPath: 'Author/No Asin', isFile: false, media: { metadata: { title: 'No Asin' } } },
     ]);
-    getABSItemMock.mockImplementation(async (id: string) => ({
-      'abs-1': { path: imported }, 'abs-2': { path: absOnly }, 'abs-3': { path: '/somewhere/else' },
-    } as Record<string, unknown>)[id]);
 
     const result = await run({ mode: 'apply' });
 
-    expect(fixMock).toHaveBeenCalledTimes(2);
-    expect(result).toMatchObject({ mode: 'apply', checked: 2, fixed: 2 });
+    // Imported (deduped with abs-1), Abs Only, Root Single — Gone is missing on disk, No Asin can't be looked up
+    expect(fixMock).toHaveBeenCalledTimes(3);
+    expect(fixMock).toHaveBeenCalledWith(path.join(absOnly, 'Abs Only.m4b'), 'ASIN-x', expect.anything());
+    expect(fixMock).toHaveBeenCalledWith(expect.stringMatching(/Root Single\.m4b$/), 'ASIN-r', expect.anything());
+    expect(result).toMatchObject({ mode: 'apply', checked: 3, fixed: 3 });
     expect(libraryServiceMock.triggerLibraryScan).toHaveBeenCalledWith('abs-lib');
+  });
+
+  it('counts unplayable files as corrupt', async () => {
+    const dir = await makeBook('Embrace', ['Embrace.m4b']);
+    prismaMock.audiobook.findMany.mockResolvedValue([book('e', 'Embrace', dir)]);
+    fixMock.mockResolvedValue({ status: 'corrupt', reason: 'moov atom not found', currentCount: 0, audnexusCount: 0, lookedUp: false });
+
+    expect(await run({ mode: 'report' })).toMatchObject({ corrupt: 1, failed: 0 });
   });
 });

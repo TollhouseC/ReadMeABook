@@ -112,6 +112,22 @@ describe('fixChaptersIfBetter', () => {
     expect(await fs.readdir(dir)).not.toContain('Book.m4b.rmab-tmp');
   });
 
+  it('reports an unplayable file as corrupt with ffmpeg\'s reason and leaves it alone', async () => {
+    mocks.probeAudioFile.mockRejectedValue(new Error('Failed to probe audio file: Command failed: ffprobe'));
+    mocks.execFile.mockImplementation(async () => {
+      throw Object.assign(new Error('Command failed'), {
+        stderr: `[mov,mp4,m4a,3gp,3g2,mj2 @ 0x685c840] moov atom not found\n${file}: Invalid data found when processing input\n`,
+      });
+    });
+
+    const result = await fixChaptersIfBetter(file, 'B0TEST0001', { apply: true });
+
+    expect(result.status).toBe('corrupt');
+    expect(result.reason).toMatch(/^moov atom not found; .*Invalid data found/);
+    expect(mocks.fetchAudnexusChapters).not.toHaveBeenCalled();
+    expect(await fs.readFile(file, 'utf8')).toBe('original');
+  });
+
   it('skips when Audnexus does not match this recording', async () => {
     mocks.fetchAudnexusChapters.mockResolvedValue({ ...audnexusData, runtimeLengthMs: 2_000_000 });
     expect(await fixChaptersIfBetter(file, 'B0TEST0001', { apply: true })).toMatchObject({ status: 'skipped', reason: expect.stringMatching(/runtime mismatch/) });

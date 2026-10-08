@@ -22,7 +22,7 @@ const execFilePromise = promisify(execFile);
 /** Containers whose chapters can be rewritten with a stream copy. */
 export const CHAPTER_FIX_FORMATS = ['.m4b', '.m4a', '.mp4'];
 
-export type ChapterFixStatus = 'fixed' | 'would_fix' | 'kept' | 'skipped' | 'failed';
+export type ChapterFixStatus = 'fixed' | 'would_fix' | 'kept' | 'skipped' | 'corrupt' | 'failed';
 
 export interface ChapterFixResult {
   status: ChapterFixStatus;
@@ -52,6 +52,22 @@ export function chapterReplacementReason(current: ChapterMarker[], audnexus: Cha
     return 'chapter names are only numbers/file names';
   }
   return null;
+}
+
+/**
+ * ffmpeg's own error for a file it can't open (e.g. "moov atom not found" for a truncated
+ * M4B), or null if the file opens fine.
+ */
+export async function diagnoseUnreadable(filePath: string): Promise<string | null> {
+  try {
+    await execFilePromise('ffprobe', ['-v', 'error', '-i', filePath], { timeout: 30000 });
+    return null;
+  } catch (error: any) {
+    const stderr = String(error?.stderr || '').trim();
+    // Drop "[mov,mp4,... @ 0x...]" prefixes: "moov atom not found; <file>: Invalid data found ..."
+    const lines = stderr.split('\n').map((l: string) => l.replace(/^\[[^\]]*\]\s*/, '').trim()).filter(Boolean);
+    return lines.length ? lines.join('; ') : (error instanceof Error ? error.message : String(error));
+  }
 }
 
 async function hasCoverStream(filePath: string): Promise<boolean> {
@@ -117,8 +133,19 @@ export async function fixChaptersIfBetter(
     return result('skipped', `unsupported format ${path.extname(filePath)}`);
   }
 
+  let probe: Awaited<ReturnType<typeof probeAudioFile>>;
+  let current: ChapterMarker[];
   try {
-    const [probe, current] = await Promise.all([probeAudioFile(filePath), probeEmbeddedChapters(filePath)]);
+    [probe, current] = await Promise.all([probeAudioFile(filePath), probeEmbeddedChapters(filePath)]);
+  } catch (error) {
+    // Unreadable file (truncated download/merge, missing moov atom, ...) — report, don't touch
+    const diagnosis = await diagnoseUnreadable(filePath);
+    const message = diagnosis || (error instanceof Error ? error.message : String(error));
+    await options.logger?.warn(`Unplayable file ${filePath}: ${message}`);
+    return result(diagnosis ? 'corrupt' : 'failed', message);
+  }
+
+  try {
     const data = await fetchAudnexusChapters(asin);
     const audnexus = fitAudnexusChapters(data, probe.duration);
     if (!audnexus) {
