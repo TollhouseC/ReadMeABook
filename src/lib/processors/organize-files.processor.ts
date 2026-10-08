@@ -224,6 +224,14 @@ export async function processOrganizeFiles(payload: OrganizeFilesPayload): Promi
 
     logger.info(`Successfully moved ${result.filesMovedCount} files to ${result.targetPath}`);
 
+    // An existing book was moved into its own subfolder to keep the series layout
+    if (result.movedExisting) {
+      await prisma.audiobook.updateMany({
+        where: { filePath: result.movedExisting.from },
+        data: { filePath: result.movedExisting.to },
+      });
+    }
+
     // Single-file imports: swap in Audnexus chapters when clearly better (never fails the import)
     if (result.audioFiles.length === 1 && audiobook.audibleAsin) {
       const chapterFix = await fixChaptersIfBetter(result.audioFiles[0], audiobook.audibleAsin, { apply: true, logger });

@@ -32,6 +32,7 @@ export type JobType =
   | 'search_packs'
   | 'merge_library_book'
   | 'fix_chapters'
+  | 'fix_library_layout'
   | 'send_notification'
   // Ebook-specific job types
   | 'search_ebook'
@@ -123,6 +124,12 @@ export interface SearchPacksPayload extends JobPayload {
 
 export interface MergeLibraryBookPayload extends JobPayload {
   requestId: string;
+}
+
+export interface FixLibraryLayoutPayload extends JobPayload {
+  /** 'report' lists nested book folders, 'apply' fixes them */
+  mode?: 'report' | 'apply';
+  scheduledJobId?: string;
 }
 
 export interface FixChaptersPayload extends JobPayload {
@@ -453,6 +460,12 @@ export class JobQueueService {
       const { processFixChapters } = await import('../processors/fix-chapters.processor');
       const payloadWithJobId = await this.ensureJobRecord(job, 'fix_chapters');
       return await processFixChapters(payloadWithJobId);
+    });
+
+    this.queue.process('fix_library_layout', 1, async (job: BullJob<FixLibraryLayoutPayload>) => {
+      const { processFixLibraryLayout } = await import('../processors/fix-library-layout.processor');
+      const payloadWithJobId = await this.ensureJobRecord(job, 'fix_library_layout');
+      return await processFixLibraryLayout(payloadWithJobId);
     });
 
     // Send notification processor
@@ -862,6 +875,13 @@ export class JobQueueService {
    */
   async addFixChaptersJob(options: { requestId?: string; mode?: 'report' | 'apply'; scheduledJobId?: string }): Promise<string> {
     return await this.addJob('fix_chapters', { ...options } as FixChaptersPayload, { priority: options.requestId ? 6 : 9 });
+  }
+
+  /**
+   * Find (report) or fix (apply) book folders nested inside other book folders
+   */
+  async addFixLibraryLayoutJob(options: { mode?: 'report' | 'apply'; scheduledJobId?: string }): Promise<string> {
+    return await this.addJob('fix_library_layout', { ...options } as FixLibraryLayoutPayload, { priority: 9 });
   }
 
   /**

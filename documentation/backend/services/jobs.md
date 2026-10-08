@@ -64,6 +64,12 @@ Manages background job queue using Bull (Redis-backed) for async tasks: searchin
 - Clears errorMessage and retry counters on match
 - Use case: Manual library imports automatically complete stuck requests
 - **Removal detection:** items no longer in the library (stale/orphaned) have their linked audiobook reset and their 'available'/'downloaded' request set to `cancelled` (errorMessage 'Removed from library') so the book shows as not-in-library and can be re-requested
+- **Removal safety** (`src/lib/services/library-relink.service.ts`):
+  - **Grace:** a record missing from a scan is only treated as removed once `lastScannedAt` is older than `STALE_GRACE_MS` (12h ≈ 2 scans); one incomplete scan can't cancel anything.
+  - **Relink by ASIN:** a stale record / orphaned audiobook whose ASIN is in the current scan under another item ID (ABS re-creates items on folder moves) → links moved (`relinkAudiobooks`/`linkAudiobook`), requests untouched.
+  - **Restore (step 7):** requests `cancelled` with 'Removed from library' whose ASIN is in the current scan → `available`, relinked; skipped if the book has a newer active request.
+  - Result adds `audiobooksRelinked`, `requestsRestored`.
+- **Fixed (2026-10-08):** a scan on 2026-09-30 cancelled 23 books still in the library (item IDs changed / incomplete scan); the restore step repairs these on the next scan.
 - **Backlog repair:** requests stuck at 'downloaded' whose book is not in the library and unchanged for >48h are also cancelled (fixes books removed before removal-detection cancelled instead of resetting to 'downloaded')
 
 **plex_recently_added_check:**

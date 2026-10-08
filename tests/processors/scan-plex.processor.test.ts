@@ -189,7 +189,7 @@ describe('processScanPlex', () => {
     prismaMock.plexLibrary.findFirst.mockResolvedValue(null);
     prismaMock.plexLibrary.create.mockResolvedValue({ id: 'new-id', plexGuid: 'guid-1' });
     prismaMock.plexLibrary.findMany
-      .mockResolvedValueOnce([{ id: 'stale-1', plexGuid: 'stale-guid', title: 'Stale Book' }])
+      .mockResolvedValueOnce([{ id: 'stale-1', plexGuid: 'stale-guid', title: 'Stale Book', lastScannedAt: new Date('2020-01-01') }])
       .mockResolvedValueOnce([{ plexGuid: 'guid-1' }])
       .mockResolvedValueOnce([]); // step 5c: library ASINs
     prismaMock.plexLibrary.delete.mockResolvedValue({});
@@ -245,6 +245,93 @@ describe('processScanPlex', () => {
     expect(prismaMock.request.update).not.toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'downloaded' }) })
     );
+  });
+
+  it('relinks books whose library item ID changed, keeps briefly-missing items, and restores wrongly cancelled requests', async () => {
+    configMock.getBackendMode.mockResolvedValue('plex');
+    configMock.getPlexConfig.mockResolvedValue({ serverUrl: 'http://plex', authToken: 'token', libraryId: 'lib-1', machineIdentifier: 'machine' });
+    libraryServiceMock.getCoverCachingParams.mockResolvedValue({ backendBaseUrl: 'http://plex', authToken: 'token', backendMode: 'plex' });
+    libraryServiceMock.getLibraryItems.mockResolvedValue([
+      { id: 'r1', externalId: 'new-guid', title: 'HWFwM 3', author: 'Shirtaloon', asin: 'B0HWFWM003', addedAt: new Date(), updatedAt: new Date() },
+      { id: 'r2', externalId: 'guid-9', title: 'Gin Fling', author: 'Lucy Score', asin: 'B0GINFLING', addedAt: new Date(), updatedAt: new Date() },
+    ]);
+    prismaMock.plexLibrary.findFirst.mockResolvedValue(null);
+    prismaMock.plexLibrary.create.mockResolvedValue({ id: 'x', plexGuid: 'x' });
+    prismaMock.plexLibrary.findMany
+      .mockResolvedValueOnce([
+        // Same book, old ID, missing > 12h → relink, not remove-and-cancel
+        { id: 'old-rec', plexGuid: 'old-guid', title: 'HWFwM 3', asin: 'B0HWFWM003', lastScannedAt: new Date('2020-01-01') },
+        // Missing from this scan only (seen 1h ago) → kept for now
+        { id: 'recent-rec', plexGuid: 'recent-guid', title: 'Partial Scan Book', asin: 'B0PARTIAL1', lastScannedAt: new Date(Date.now() - 3600000) },
+      ])
+      .mockResolvedValueOnce([{ plexGuid: 'new-guid' }, { plexGuid: 'guid-9' }, { plexGuid: 'recent-guid' }])
+      .mockResolvedValueOnce([]);
+    prismaMock.plexLibrary.delete.mockResolvedValue({});
+    prismaMock.audiobook.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.audiobook.findMany.mockResolvedValueOnce([]); // step 5b: no orphans
+    prismaMock.audiobook.update.mockResolvedValue({});
+    prismaMock.request.update.mockResolvedValue({});
+    prismaMock.request.findFirst.mockResolvedValue(null);
+    prismaMock.request.findMany.mockImplementation(async (args: any) =>
+      args?.where?.status === 'cancelled'
+        ? [{ id: 'req-gin', audiobook: { id: 'ab-gin', title: 'Gin Fling', audibleAsin: 'B0GINFLING' } }]
+        : []);
+
+    const matcher = await import('@/lib/utils/audiobook-matcher');
+    (matcher.findPlexMatch as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    const { processScanPlex } = await import('@/lib/processors/scan-plex.processor');
+    const result = await processScanPlex({ jobId: 'job-relink' });
+
+    expect(prismaMock.audiobook.updateMany).toHaveBeenCalledWith({
+      where: { OR: [{ plexGuid: 'old-guid' }, { absItemId: 'old-guid' }] },
+      data: expect.objectContaining({ plexGuid: 'new-guid' }),
+    });
+    expect(prismaMock.plexLibrary.delete).toHaveBeenCalledWith({ where: { id: 'old-rec' } });
+    expect(prismaMock.plexLibrary.delete).not.toHaveBeenCalledWith({ where: { id: 'recent-rec' } });
+    expect(prismaMock.request.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'cancelled' }) })
+    );
+    // Wrongly cancelled request restored and relinked
+    expect(prismaMock.request.update).toHaveBeenCalledWith({
+      where: { id: 'req-gin' },
+      data: expect.objectContaining({ status: 'available', errorMessage: null }),
+    });
+    expect(prismaMock.audiobook.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'ab-gin' }, data: expect.objectContaining({ plexGuid: 'guid-9' }),
+    }));
+    expect(result).toMatchObject({ audiobooksRelinked: 1, requestsRestored: 1 });
+  });
+
+  it('relinks an orphaned audiobook by ASIN instead of cancelling its request', async () => {
+    configMock.getBackendMode.mockResolvedValue('audiobookshelf');
+    libraryServiceMock.getCoverCachingParams.mockResolvedValue({ backendBaseUrl: 'http://abs', authToken: 't', backendMode: 'audiobookshelf' });
+    configMock.get.mockResolvedValue('abs-lib');
+    libraryServiceMock.getLibraryItems.mockResolvedValue([
+      { id: 'i1', externalId: 'abs-new', title: "Ender's Game", author: 'Card', asin: 'B0ENDER001', addedAt: new Date(), updatedAt: new Date() },
+    ]);
+    prismaMock.plexLibrary.findFirst.mockResolvedValue({ id: 'rec', plexGuid: 'abs-new' });
+    prismaMock.plexLibrary.update.mockResolvedValue({});
+    prismaMock.plexLibrary.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ plexGuid: 'abs-new' }])
+      .mockResolvedValueOnce([]);
+    prismaMock.audiobook.findMany.mockResolvedValueOnce([
+      { id: 'ab-ender', title: "Ender's Game", audibleAsin: 'B0ENDER001', plexGuid: null, absItemId: 'abs-gone', requests: [{ id: 'req-e', status: 'available' }] },
+    ]);
+    prismaMock.audiobook.update.mockResolvedValue({});
+    prismaMock.request.findMany.mockResolvedValue([]);
+
+    const matcher = await import('@/lib/utils/audiobook-matcher');
+    (matcher.findPlexMatch as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    const { processScanPlex } = await import('@/lib/processors/scan-plex.processor');
+    await processScanPlex({ jobId: 'job-orphan' });
+
+    expect(prismaMock.audiobook.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'ab-ender' }, data: expect.objectContaining({ absItemId: 'abs-new' }),
+    }));
+    expect(prismaMock.request.update).not.toHaveBeenCalled();
   });
 
   it('cancels requests stuck at downloaded whose book is no longer in the library', async () => {

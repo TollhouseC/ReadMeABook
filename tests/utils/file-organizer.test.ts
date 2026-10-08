@@ -94,6 +94,12 @@ vi.mock('@/lib/db', () => ({
 }));
 vi.mock('@/lib/services/ebook-scraper', () => ebookMock);
 
+// Layout guard: identity by default (covered in library-layout.test.ts with real folders)
+const layoutMock = vi.hoisted(() => ({
+  resolveCollisionFreeTarget: vi.fn(async (_mediaDir: string, target: string) => ({ targetPath: target })),
+}));
+vi.mock('@/lib/utils/library-layout', () => layoutMock);
+
 describe('file organizer', () => {
   const originalEnv = { ...process.env };
 
@@ -141,6 +147,34 @@ describe('file organizer', () => {
     expect(result.filesMovedCount).toBe(1);
     expect(loggerMock.RMABLogger.forJob).toHaveBeenCalledWith('job-1', 'organize');
     expect(metadataMock.tagMultipleFiles).not.toHaveBeenCalled();
+  });
+
+  it('imports into the layout-adjusted folder and reports a moved existing book', async () => {
+    configState.values.set('metadata_tagging_enabled', 'false');
+    configState.values.set('ebook_sidecar_enabled', 'false');
+    fsMock.stat.mockResolvedValue({ isFile: () => true });
+    fsMock.access.mockImplementation(async (filePath: string) => {
+      if (filePath === '/downloads/book.m4b') return undefined;
+      throw new Error('missing');
+    });
+    fsMock.mkdir.mockResolvedValue(undefined);
+    copyFileMock.copyFile.mockResolvedValue(undefined);
+    fsMock.chmod.mockResolvedValue(undefined);
+    const series = path.join('/media', 'Author', 'The Academy');
+    layoutMock.resolveCollisionFreeTarget.mockResolvedValueOnce({
+      targetPath: path.join(series, 'The Thoroughbreds'),
+      movedExisting: { from: series, to: path.join(series, 'The Academy') },
+    });
+
+    const result = await new FileOrganizer('/media', '/tmp').organize(
+      '/downloads/book.m4b',
+      { title: 'The Thoroughbreds', author: 'Author', series: 'The Academy', seriesPart: '2' },
+      '{author}/{series}/{title}',
+    );
+
+    expect(layoutMock.resolveCollisionFreeTarget).toHaveBeenCalledWith('/media', path.join(series, 'The Thoroughbreds'), expect.anything());
+    expect(result.targetPath).toBe(path.join(series, 'The Thoroughbreds'));
+    expect(result.movedExisting).toEqual({ from: series, to: path.join(series, 'The Academy') });
   });
 
   describe('importing one book from a multi-book pack (selectedFiles)', () => {

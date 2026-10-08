@@ -81,7 +81,10 @@ describe('SchedulerService', () => {
     const service = new SchedulerService();
     await service.start();
 
-    expect(prismaMock.scheduledJob.create).toHaveBeenCalledTimes(12);
+    expect(prismaMock.scheduledJob.create).toHaveBeenCalledTimes(14);
+    expect(prismaMock.scheduledJob.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ type: 'library_layout_apply', enabled: false }),
+    });
     // Chapter check/fix jobs are created disabled (run manually from the Jobs page)
     expect(prismaMock.scheduledJob.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ type: 'chapter_check_report', enabled: false }),

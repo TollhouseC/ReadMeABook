@@ -12,6 +12,14 @@ import { getLibraryService } from '../services/library';
 import { getConfigService } from '../services/config.service';
 import { getThumbnailCacheService } from '../services/thumbnail-cache.service';
 import { RMABLogger } from '../utils/logger';
+import {
+  STALE_GRACE_MS,
+  REMOVED_FROM_LIBRARY,
+  buildAsinIndex,
+  linkAudiobook,
+  relinkAudiobooks,
+  restoreRemovedFromLibraryRequests,
+} from '../services/library-relink.service';
 
 /**
  * Process library scan job
@@ -265,12 +273,17 @@ export async function processScanPlex(payload: ScanPlexPayload): Promise<any> {
     let staleRemovedCount = 0;
     let audiobooksReset = 0;
     let requestsReset = 0;
+    let audiobooksRelinked = 0;
+
+    // ASIN → item seen in this scan: a "missing" item whose ASIN is here under a new ID
+    // (ABS re-creates items on folder moves/rescans) is relinked, not treated as removed
+    const asinIndex = buildAsinIndex(libraryItems);
 
     // Safety check: Only remove stale records if we actually scanned items
     // This prevents accidentally deleting everything if the library scan fails or returns empty
     if (scannedPlexGuids.length > 0) {
       // Find all plex_library entries for this library that were NOT seen in this scan
-      const staleLibraryItems = await prisma.plexLibrary.findMany({
+      const missingLibraryItems = await prisma.plexLibrary.findMany({
         where: {
           plexLibraryId: targetLibraryId,
           plexGuid: {
@@ -279,12 +292,31 @@ export async function processScanPlex(payload: ScanPlexPayload): Promise<any> {
         },
       });
 
+      // Grace period: only treat an item as removed once it has been missing for
+      // STALE_GRACE_MS, so one incomplete scan can't cancel books still in the library
+      const graceCutoff = new Date(Date.now() - STALE_GRACE_MS);
+      const staleLibraryItems = missingLibraryItems.filter(item => item.lastScannedAt < graceCutoff);
+      const waiting = missingLibraryItems.length - staleLibraryItems.length;
+      if (waiting > 0) {
+        logger.info(`${waiting} library record(s) missing from this scan — keeping them until missing for ${STALE_GRACE_MS / 3600000}h`);
+      }
+
       if (staleLibraryItems.length > 0) {
       logger.info(`Found ${staleLibraryItems.length} stale library records to remove`);
 
       // For each stale library item, clean up references
       for (const staleItem of staleLibraryItems) {
         try {
+          // Same book under a new library item ID → move links, keep requests as they are
+          const replacementGuid = staleItem.asin ? asinIndex.get(staleItem.asin.toLowerCase()) : undefined;
+          if (replacementGuid && replacementGuid !== staleItem.plexGuid) {
+            audiobooksRelinked += await relinkAudiobooks(staleItem.plexGuid, replacementGuid, backendMode);
+            await prisma.plexLibrary.delete({ where: { id: staleItem.id } });
+            staleRemovedCount++;
+            logger.info(`"${staleItem.title}" has a new library item ID — relinked (not removed)`);
+            continue;
+          }
+
           // Find audiobooks that reference this stale library item
           const linkedAudiobooks = await prisma.audiobook.findMany({
             where: {
@@ -327,7 +359,7 @@ export async function processScanPlex(payload: ScanPlexPayload): Promise<any> {
                   where: { id: request.id },
                   data: {
                     status: 'cancelled',
-                    errorMessage: 'Removed from library',
+                    errorMessage: REMOVED_FROM_LIBRARY,
                     updatedAt: new Date(),
                   },
                 });
@@ -398,6 +430,15 @@ export async function processScanPlex(payload: ScanPlexPayload): Promise<any> {
 
       // This audiobook is orphaned - its library link points to nothing
       try {
+        // Book still in the library under another item (by ASIN) → relink, don't reset
+        const replacementGuid = audiobook.audibleAsin ? asinIndex.get(audiobook.audibleAsin.toLowerCase()) : undefined;
+        if (replacementGuid) {
+          await linkAudiobook(audiobook.id, replacementGuid, backendMode);
+          audiobooksRelinked++;
+          logger.info(`Relinked "${audiobook.title}" to its current library item (by ASIN)`);
+          continue;
+        }
+
         logger.info(`Found orphaned audiobook: "${audiobook.title}" (linked to non-existent library item)`);
 
         // Clear library linkage
@@ -420,7 +461,7 @@ export async function processScanPlex(payload: ScanPlexPayload): Promise<any> {
               where: { id: request.id },
               data: {
                 status: 'cancelled',
-                errorMessage: 'Removed from library',
+                errorMessage: REMOVED_FROM_LIBRARY,
                 updatedAt: new Date(),
               },
             });
@@ -482,7 +523,7 @@ export async function processScanPlex(payload: ScanPlexPayload): Promise<any> {
           where: { id: request.id },
           data: {
             status: 'cancelled',
-            errorMessage: 'Removed from library',
+            errorMessage: REMOVED_FROM_LIBRARY,
             updatedAt: new Date(),
           },
         });
@@ -597,6 +638,13 @@ export async function processScanPlex(payload: ScanPlexPayload): Promise<any> {
       }
     }
 
+    // 7. Restore requests wrongly cancelled as "Removed from library" whose book is back
+    const requestsRestored = await restoreRemovedFromLibraryRequests(asinIndex, backendMode, logger).catch(error => {
+      logger.error(`Failed to restore removed-from-library requests: ${error instanceof Error ? error.message : String(error)}`);
+      return 0;
+    });
+    if (requestsRestored > 0) logger.info(`Restored ${requestsRestored} request(s) whose book is still in the library`);
+
     logger.info(`Matched ${matchedCount}/${matchableRequests.length} requests`, {
       totalScanned: libraryItems.length,
       newCount,
@@ -609,6 +657,8 @@ export async function processScanPlex(payload: ScanPlexPayload): Promise<any> {
       orphanedRequestsReset,
       stuckDownloadedCancelled,
       matchedDownloads: matchedCount,
+      audiobooksRelinked,
+      requestsRestored,
     });
 
     return {
@@ -628,6 +678,8 @@ export async function processScanPlex(payload: ScanPlexPayload): Promise<any> {
       stuckDownloadedCancelled,
       newAudiobooks: results,
       matchedDownloads: matchedCount,
+      audiobooksRelinked,
+      requestsRestored,
     };
   } catch (error) {
     logger.error(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);

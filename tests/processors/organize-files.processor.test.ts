@@ -94,6 +94,31 @@ describe('processOrganizeFiles', () => {
     expect(fixChaptersMock).toHaveBeenCalledWith('/media/Author/Book/Book.m4b', 'ASIN1', expect.objectContaining({ apply: true }));
   });
 
+  it('updates the recorded folder of a book the import moved into its own subfolder', async () => {
+    prismaMock.request.update.mockResolvedValue({});
+    prismaMock.audiobook.findUnique.mockResolvedValue({ id: 'a2', title: 'The Thoroughbreds', author: 'Author', narrator: null, coverArtUrl: null, audibleAsin: null });
+    organizerMock.organize.mockResolvedValue({
+      success: true,
+      targetPath: '/media/Author/The Academy/The Thoroughbreds',
+      filesMovedCount: 1,
+      errors: [],
+      audioFiles: ['/media/Author/The Academy/The Thoroughbreds/The Thoroughbreds.m4b'],
+      movedExisting: { from: '/media/Author/The Academy', to: '/media/Author/The Academy/The Academy' },
+    });
+    prismaMock.audiobook.update.mockResolvedValue({});
+    prismaMock.audiobook.updateMany.mockResolvedValue({ count: 1 });
+    configMock.getBackendMode.mockResolvedValue('plex');
+    configMock.get.mockResolvedValue(null);
+
+    const { processOrganizeFiles } = await import('@/lib/processors/organize-files.processor');
+    await processOrganizeFiles({ requestId: 'req-2', audiobookId: 'a2', downloadPath: '/downloads/x', jobId: 'job-2' });
+
+    expect(prismaMock.audiobook.updateMany).toHaveBeenCalledWith({
+      where: { filePath: '/media/Author/The Academy' },
+      data: { filePath: '/media/Author/The Academy/The Academy' },
+    });
+  });
+
   it('skips filesystem scan when disabled', async () => {
     prismaMock.request.update.mockResolvedValue({});
     prismaMock.audiobook.findUnique.mockResolvedValue({

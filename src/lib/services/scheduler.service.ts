@@ -10,7 +10,7 @@ import { RMABLogger } from '../utils/logger';
 
 const logger = RMABLogger.create('Scheduler');
 
-export type ScheduledJobType = 'plex_library_scan' | 'plex_recently_added_check' | 'audible_refresh' | 'retry_missing_torrents' | 'retry_failed_imports' | 'cleanup_seeded_torrents' | 'monitor_rss_feeds' | 'sync_reading_shelves' | 'check_watched_lists' | 'check_stalled_downloads' | 'chapter_check_report' | 'chapter_check_apply';
+export type ScheduledJobType = 'plex_library_scan' | 'plex_recently_added_check' | 'audible_refresh' | 'retry_missing_torrents' | 'retry_failed_imports' | 'cleanup_seeded_torrents' | 'monitor_rss_feeds' | 'sync_reading_shelves' | 'check_watched_lists' | 'check_stalled_downloads' | 'chapter_check_report' | 'chapter_check_apply' | 'library_layout_report' | 'library_layout_apply';
 
 export interface ScheduledJob {
   id: string;
@@ -163,6 +163,22 @@ export class SchedulerService {
         name: 'Chapter Fix (Apply)',
         type: 'chapter_check_apply' as ScheduledJobType,
         schedule: '0 4 1 * *', // Monthly if enabled
+        enabled: false,
+        payload: {},
+      },
+      {
+        // Run manually: lists book folders nested inside other book folders
+        name: 'Library Layout Check (Report Only)',
+        type: 'library_layout_report' as ScheduledJobType,
+        schedule: '0 5 1 * *', // Monthly if enabled
+        enabled: false,
+        payload: {},
+      },
+      {
+        // Run manually: moves each outer book into its own subfolder
+        name: 'Library Layout Fix (Apply)',
+        type: 'library_layout_apply' as ScheduledJobType,
+        schedule: '0 5 1 * *', // Monthly if enabled
         enabled: false,
         payload: {},
       },
@@ -416,6 +432,13 @@ export class SchedulerService {
         break;
       case 'check_stalled_downloads':
         bullJobId = await this.triggerCheckStalledDownloads(job);
+        break;
+      case 'library_layout_report':
+      case 'library_layout_apply':
+        bullJobId = await this.jobQueue.addFixLibraryLayoutJob({
+          mode: job.type === 'library_layout_apply' ? 'apply' : 'report',
+          scheduledJobId: job.id,
+        });
         break;
       case 'chapter_check_report':
       case 'chapter_check_apply':

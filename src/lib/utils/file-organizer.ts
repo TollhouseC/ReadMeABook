@@ -22,6 +22,7 @@ import {
 import { prisma } from '../db';
 import { substituteTemplate, buildRenamedFilename, type TemplateVariables } from './path-template.util';
 import { applyVersionLabel } from './book-versions';
+import { resolveCollisionFreeTarget } from './library-layout';
 import { AUDIO_EXTENSIONS } from '../constants/audio-formats';
 
 export interface AudiobookMetadata {
@@ -44,6 +45,8 @@ export interface OrganizationResult {
   errors: string[];
   audioFiles: string[];
   coverArtFile?: string;
+  /** An existing book moved into its own subfolder to keep the series layout (see library-layout.ts) */
+  movedExisting?: { from: string; to: string };
 }
 
 export interface EbookOrganizationResult {
@@ -327,7 +330,7 @@ export class FileOrganizer {
       }
 
       // Build target directory
-      const targetPath = this.buildTargetPath(
+      const templatePath = this.buildTargetPath(
         this.mediaDir,
         template,
         audiobook.author,
@@ -338,6 +341,14 @@ export class FileOrganizer {
         audiobook.series,
         audiobook.seriesPart
       );
+
+      // Never nest inside (or loosely beside) another book — Audiobookshelf would merge them
+      const layout = await resolveCollisionFreeTarget(this.mediaDir, templatePath, {
+        dirMode: this.dirMode,
+        logger: logger ?? undefined,
+      });
+      const targetPath = layout.targetPath;
+      if (layout.movedExisting) result.movedExisting = layout.movedExisting;
 
       await logger?.info(`Target path: ${targetPath}`);
 

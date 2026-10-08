@@ -34,6 +34,14 @@ Result: Douglas Adams/Stephen Fry/The Hitchhiker's Guide to the Galaxy/
 
 **Rationale:** Template system allows customization for different metadata agent configurations and user preferences while maintaining backward compatibility.
 
+## Library Layout Guard
+- **Why:** Audiobookshelf treats everything under a folder containing audio as ONE book. A series named like a book stored without a series (e.g. "The Academy" book 1 at `Author/The Academy/`) made book 2 land at `Author/The Academy/The Thoroughbreds/` → ABS merged it into book 1 → RMAB cancelled the request as removed.
+- **On import** (`resolveCollisionFreeTarget` in `src/lib/utils/library-layout.ts`, called by `organize()`):
+  - Target inside an existing book folder → that book's top-level files move to `<folder>/<folder name>/` first (`moveBookIntoOwnSubfolder`); `OrganizationResult.movedExisting` → organize processor updates `Audiobook.filePath`.
+  - Target folder already holds other books in subfolders → import into `<target>/<folder name>/`.
+  - Disc folders (`CD1`, `Disc 2`, `Part 3`) are not separate books.
+- **Library-wide:** Jobs page → "Library Layout Check (Report Only)" / "Library Layout Fix (Apply)" (`library_layout_report|apply` → `fix_library_layout` job, `src/lib/processors/fix-library-layout.processor.ts`). `findNestedBooks` lists book folders containing other books; apply moves the outer book down, updates `filePath`, triggers scan.
+
 ## Process
 
 1. Download completes in `/downloads/[torrent-name]/` or `/downloads/[filename]` (single file)

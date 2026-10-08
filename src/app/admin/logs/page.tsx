@@ -285,6 +285,7 @@ export default function AdminLogsPage() {
               <option value="check_stalled_downloads">Check Stalled Downloads</option>
               <option value="merge_library_book">Merge Library Book</option>
               <option value="fix_chapters">Fix Chapters</option>
+              <option value="fix_library_layout">Fix Library Layout</option>
             </select>
           </div>
         </div>
