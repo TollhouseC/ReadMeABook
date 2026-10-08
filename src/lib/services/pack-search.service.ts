@@ -15,6 +15,7 @@ import { getConfigService } from '@/lib/services/config.service';
 import { getDownloadClientManager } from '@/lib/services/download-client-manager.service';
 import { getJobQueueService } from '@/lib/services/job-queue.service';
 import { filterBlacklistedResults, blacklistRelease } from '@/lib/utils/release-blacklist';
+import { getRequiredReleaseLanguage } from '@/lib/utils/release-language';
 import { rankPackResults, type PackCandidate, type PackType } from '@/lib/utils/pack-ranking';
 import { matchPackFiles, type PackMatchResult } from '@/lib/utils/pack-matcher';
 import { planLinks, wantedFileIndexes } from '@/lib/services/pack-links.service';
@@ -213,7 +214,8 @@ export async function runPackSearch(
     } catch { /* size heuristic is optional */ }
   }
 
-  const ranked = rankPackResults(results, { seriesName: audiobook.series, author, bookDurationMinutes });
+  const requiredLanguage = await getRequiredReleaseLanguage();
+  const ranked = rankPackResults(results, { seriesName: audiobook.series, author, bookDurationMinutes, requiredLanguage });
   const candidates = [
     ...ranked.filter(c => c.packType === 'series').slice(0, MAX_SERIES_CANDIDATES),
     ...(authorMode === 'disabled' ? [] : ranked.filter(c => c.packType === 'author').slice(0, MAX_AUTHOR_CANDIDATES)),

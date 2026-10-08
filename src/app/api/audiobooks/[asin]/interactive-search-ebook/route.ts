@@ -8,6 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getRequiredReleaseLanguage } from '@/lib/utils/release-language';
 import { requireAuth, AuthenticatedRequest } from '@/lib/middleware/auth';
 import { prisma } from '@/lib/db';
 import { getConfigService } from '@/lib/services/config.service';
@@ -485,6 +486,7 @@ async function searchIndexersForInteractive(
     requireAuthor: false,
     stopWords: rankLangConfig.stopWords,
     characterReplacements: rankLangConfig.characterReplacements,
+    requiredLanguage: await getRequiredReleaseLanguage(),
   });
 
   // Convert to unified result type

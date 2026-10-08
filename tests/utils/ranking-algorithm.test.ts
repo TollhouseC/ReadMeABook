@@ -33,6 +33,29 @@ describe('ranking-algorithm', () => {
     expect(ranked[0].guid).toBe('big');
   });
 
+  it('drops releases tagged with another language when a language is required', () => {
+    const german = { ...baseTorrent, guid: 'de', title: 'Great Book - Author Name (Hörbuch) [GER]' };
+    const untagged = { ...baseTorrent, guid: 'plain' };
+    const english = { ...baseTorrent, guid: 'en', title: 'Great Book - Author Name [ENG]' };
+
+    const ranked = rankTorrents([german, untagged, english], { title: 'Great Book', author: 'Author Name' }, { requiredLanguage: 'english' });
+    expect(ranked.map(r => r.guid).sort()).toEqual(['en', 'plain']);
+
+    const unfiltered = rankTorrents([german, untagged], { title: 'Great Book', author: 'Author Name' }, { requiredLanguage: 'any' });
+    expect(unfiltered).toHaveLength(2);
+  });
+
+  it('applies the language filter to ebook ranking too', () => {
+    const algo = new RankingAlgorithm();
+    const ebook = { ...baseTorrent, size: 2 * MB };
+    const ranked = algo.rankEbookTorrents(
+      [{ ...ebook, guid: 'fr', title: 'Great Book - Author Name (FR) epub' }, { ...ebook, guid: 'ok', title: 'Great Book - Author Name epub' }],
+      { title: 'Great Book', author: 'Author Name', preferredFormat: 'epub' },
+      { requiredLanguage: 'english' }
+    );
+    expect(ranked.map(r => r.guid)).toEqual(['ok']);
+  });
+
   it('prefers strong title/author matches over weaker ones', () => {
     const good = { ...baseTorrent, guid: 'good', title: 'Great Book - Author Name' };
     const bad = { ...baseTorrent, guid: 'bad', title: 'Different Title - Other Author' };

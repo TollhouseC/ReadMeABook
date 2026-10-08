@@ -18,6 +18,7 @@
 
 import type { TorrentResult } from './ranking-algorithm';
 import { tokenize } from './pack-matcher';
+import { matchesRequiredLanguage, type RequiredLanguage } from './release-language';
 
 export type PackType = 'series' | 'author';
 
@@ -33,6 +34,8 @@ export interface PackRankingInput {
   author: string;
   /** Length of the requested book, used to spot unlabelled packs by size */
   bookDurationMinutes?: number;
+  /** Hard-filter packs tagged with another language */
+  requiredLanguage?: RequiredLanguage;
 }
 
 const MB = 1024 * 1024;
@@ -112,6 +115,7 @@ export function rankPackResults(results: TorrentResult[], input: PackRankingInpu
   for (const result of results) {
     const title = result.title || '';
     if (result.size < MIN_PACK_BYTES) continue;
+    if (!matchesRequiredLanguage(result, input.requiredLanguage, input.seriesName)) continue;
     if (EBOOK_RE.test(title)) continue;
     if (!hasAuthor(title, input.author)) continue;
 

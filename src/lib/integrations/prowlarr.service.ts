@@ -70,6 +70,7 @@ interface ProwlarrSearchResult {
   uploadVolumeFactor?: number;
   indexerFlags?: string[] | number[];  // Can be string names or numeric IDs
   protocol?: string;  // 'torrent' or 'usenet' - provided by Prowlarr API
+  languages?: Array<{ id?: number; name?: string } | string>;  // Sent by some indexers
   [key: string]: any;  // Allow any additional fields from Prowlarr API
 }
 
@@ -544,6 +545,7 @@ export class ProwlarrService {
         hasChapters: metadata.hasChapters,
         flags: flags.length > 0 ? flags : undefined,
         protocol: result.protocol, // 'torrent' or 'usenet'
+        ...(Array.isArray(result.languages) && result.languages.length > 0 && { languages: result.languages }),
       };
     } catch (error) {
       logger.error('Failed to transform result', { title: result?.title, error: error instanceof Error ? error.message : String(error) });

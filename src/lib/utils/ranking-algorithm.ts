@@ -4,6 +4,7 @@
  */
 
 import { compareTwoStrings } from 'string-similarity';
+import { filterByLanguage, type RequiredLanguage } from './release-language';
 
 export interface TorrentResult {
   indexer: string;
@@ -22,6 +23,7 @@ export interface TorrentResult {
   hasChapters?: boolean;
   flags?: string[];     // Indexer flags like "Freeleech", "Internal", etc.
   protocol?: string;    // 'torrent' or 'usenet' - from Prowlarr API
+  languages?: Array<{ id?: number; name?: string } | string>;  // Indexer-provided languages (when sent)
 }
 
 export interface AudiobookRequest {
@@ -42,6 +44,7 @@ export interface RankTorrentsOptions {
   requireAuthor?: boolean;                   // Enforce author presence check (default: true)
   stopWords?: string[];                      // Language-specific stop words for matching
   characterReplacements?: Record<string, string>;  // Language-specific char replacements (e.g. ß→ss)
+  requiredLanguage?: RequiredLanguage;       // Hard-filter releases tagged with another language
 }
 
 export interface EbookTorrentRequest {
@@ -56,6 +59,7 @@ export interface RankEbookTorrentsOptions {
   requireAuthor?: boolean;                   // Enforce author presence check (default: true)
   stopWords?: string[];                      // Language-specific stop words for matching
   characterReplacements?: Record<string, string>;  // Language-specific char replacements (e.g. ß→ss)
+  requiredLanguage?: RequiredLanguage;       // Hard-filter releases tagged with another language
 }
 
 export interface BonusModifier {
@@ -120,12 +124,13 @@ export class RankingAlgorithm {
       requireAuthor = true,  // Safe default: require author in automatic mode
       stopWords,
       characterReplacements,
+      requiredLanguage,
     } = options;
-    // Filter out files < 20 MB (likely ebooks/samples)
-    const filteredTorrents = torrents.filter((torrent) => {
+    // Filter out files < 20 MB (likely ebooks/samples) and releases in another language
+    const filteredTorrents = filterByLanguage(torrents.filter((torrent) => {
       const sizeMB = torrent.size / (1024 * 1024);
       return sizeMB >= 20;
-    });
+    }), requiredLanguage, audiobook.title).kept;
 
     const ranked = filteredTorrents.map((torrent) => {
       // Calculate base scores (0-100)
@@ -821,13 +826,14 @@ export class RankingAlgorithm {
       requireAuthor = true,  // Safe default: require author in automatic mode
       stopWords,
       characterReplacements,
+      requiredLanguage,
     } = options;
 
-    // Filter out files > 20 MB (too large for ebooks)
-    const filteredTorrents = torrents.filter((torrent) => {
+    // Filter out files > 20 MB (too large for ebooks) and releases in another language
+    const filteredTorrents = filterByLanguage(torrents.filter((torrent) => {
       const sizeMB = torrent.size / (1024 * 1024);
       return sizeMB <= 20;
-    });
+    }), requiredLanguage, ebook.title).kept;
 
     const ranked = filteredTorrents.map((torrent) => {
       // Detect ebook format from title

@@ -96,14 +96,14 @@ export function InteractiveTorrentSearchModal({
   onConfirm,
 }: InteractiveTorrentSearchModalProps) {
   // Hooks for existing audiobook request flow
-  const { searchTorrents: searchByRequestId, isLoading: isSearchingByRequest, error: searchByRequestError } = useInteractiveSearch();
+  const { searchTorrents: searchByRequestId, isLoading: isSearchingByRequest, error: searchByRequestError, hiddenByLanguage: hiddenByLanguageForRequest } = useInteractiveSearch();
   const { selectTorrent, isLoading: isSelectingTorrent, error: selectTorrentError } = useSelectTorrent();
 
   // Hook for reported issue replacement flow
   const { replaceWithTorrent, isLoading: isReplacing, error: replaceError } = useReplaceWithTorrent();
 
   // Hooks for new audiobook flow
-  const { searchTorrents: searchByAudiobook, isLoading: isSearchingByAudiobook, error: searchByAudiobookError } = useSearchTorrents();
+  const { searchTorrents: searchByAudiobook, isLoading: isSearchingByAudiobook, error: searchByAudiobookError, hiddenByLanguage: hiddenByLanguageForAudiobook } = useSearchTorrents();
   const { requestWithTorrent, isLoading: isRequestingWithTorrent, error: requestWithTorrentError } = useRequestWithTorrent();
 
   // Hooks for ebook flow (request ID-based - admin)
@@ -149,6 +149,10 @@ export function InteractiveTorrentSearchModal({
       : (hasRequestId
           ? (searchByRequestError || selectTorrentError)
           : (searchByAudiobookError || requestWithTorrentError));
+
+  // Releases hidden by the release-language setting (audiobook searches only)
+  const hiddenByLanguage = isEbookMode ? 0 : (hasRequestId ? hiddenByLanguageForRequest : hiddenByLanguageForAudiobook);
+  const hiddenByLanguageText = hiddenByLanguage > 0 ? `${hiddenByLanguage} hidden (other language)` : null;
 
   // Mount tracking for portal
   useEffect(() => { setMounted(true); }, []);
@@ -368,6 +372,9 @@ export function InteractiveTorrentSearchModal({
                 </div>
                 <p className="text-[15px] font-medium text-gray-500 dark:text-gray-400">{noResultsText}</p>
                 <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Try adjusting your search terms</p>
+                {hiddenByLanguageText && (
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{hiddenByLanguageText}</p>
+                )}
                 <button
                   onClick={performSearch}
                   className="mt-4 text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
@@ -509,6 +516,7 @@ export function InteractiveTorrentSearchModal({
           <div className="flex items-center justify-between px-5 py-3 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-t border-gray-200/50 dark:border-gray-700/50">
             <p className="text-xs text-gray-400 dark:text-gray-500">
               {resultCountText(results.length)}
+              {hiddenByLanguageText && ` · ${hiddenByLanguageText}`}
             </p>
             <button
               onClick={performSearch}

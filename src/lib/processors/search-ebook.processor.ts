@@ -16,6 +16,7 @@ import { rankEbookTorrents, RankedEbookTorrent } from '../utils/ranking-algorith
 import { groupIndexersByCategories, getGroupDescription } from '../utils/indexer-grouping';
 import { getLanguageForRegion } from '../constants/language-config';
 import { filterBlacklistedResults } from '../utils/release-blacklist';
+import { filterByLanguage, getRequiredReleaseLanguage } from '../utils/release-language';
 import type { AudibleRegion } from '../types/audible';
 
 // Import ebook scraper functions for Anna's Archive
@@ -366,6 +367,13 @@ async function searchIndexers(
   const ebookRegion = await configService.getAudibleRegion() as AudibleRegion;
   const ebookLangConfig = getLanguageForRegion(ebookRegion);
 
+  // Release language (default English) — releases tagged with another language are dropped
+  const requiredLanguage = await getRequiredReleaseLanguage();
+  const languageRemoved = filterByLanguage(candidateResults, requiredLanguage, audiobook.title).removed;
+  if (languageRemoved.length > 0) {
+    logger.info(`Filtered out ${languageRemoved.length} result(s) not in ${requiredLanguage}`);
+  }
+
   // Rank results with ebook-specific scoring
   // This filters out > 20MB and uses inverted size scoring
   const rankedResults = rankEbookTorrents(candidateResults, {
@@ -378,6 +386,7 @@ async function searchIndexers(
     requireAuthor: true, // Automatic mode - prevent wrong authors
     stopWords: ebookLangConfig.stopWords,
     characterReplacements: ebookLangConfig.characterReplacements,
+    requiredLanguage,
   });
 
   // Log filter results

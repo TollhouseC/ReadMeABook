@@ -312,6 +312,8 @@ export function useInteractiveSearch() {
   const { accessToken } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Releases hidden because they're tagged with a language other than release_language
+  const [hiddenByLanguage, setHiddenByLanguage] = useState(0);
 
   const searchTorrents = async (requestId: string, customTitle?: string) => {
     if (!accessToken) {
@@ -336,6 +338,7 @@ export function useInteractiveSearch() {
         throw new Error(data.message || 'Failed to search for torrents');
       }
 
+      setHiddenByLanguage(data.languageFiltered || 0);
       return data.results || [];
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
@@ -346,7 +349,7 @@ export function useInteractiveSearch() {
     }
   };
 
-  return { searchTorrents, isLoading, error };
+  return { searchTorrents, isLoading, error, hiddenByLanguage };
 }
 
 export function useSelectTorrent() {
@@ -397,6 +400,8 @@ export function useSearchTorrents() {
   const { accessToken } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Releases hidden because they're tagged with a language other than release_language
+  const [hiddenByLanguage, setHiddenByLanguage] = useState(0);
 
   const searchTorrents = async (title: string, author: string, asin?: string) => {
     if (!accessToken) {
@@ -421,6 +426,7 @@ export function useSearchTorrents() {
         throw new Error(data.message || 'Failed to search for torrents');
       }
 
+      setHiddenByLanguage(data.languageFiltered || 0);
       return data.results || [];
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
@@ -431,7 +437,7 @@ export function useSearchTorrents() {
     }
   };
 
-  return { searchTorrents, isLoading, error };
+  return { searchTorrents, isLoading, error, hiddenByLanguage };
 }
 
 export function useRequestWithTorrent() {

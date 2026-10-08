@@ -49,6 +49,7 @@ interface TorrentResult {
 ```
 
 ## Config
+- Results map optional `languages` (sent by some indexers) → `TorrentResult.languages`, used by the release language filter ([ranking-algorithm.md](ranking-algorithm.md#release-language-filter)).
 
 - `indexer.prowlarr_url`
 - `indexer.prowlarr_api_key`

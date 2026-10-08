@@ -45,6 +45,10 @@ vi.mock('@/app/admin/settings/tabs/IndexersTab/PackSearchSection', () => ({
   PackSearchSection: () => <div data-testid="pack-search-section">Series &amp; Author Packs</div>,
 }));
 
+vi.mock('@/app/admin/settings/tabs/IndexersTab/ReleaseLanguageSection', () => ({
+  ReleaseLanguageSection: () => <div data-testid="release-language-section">Release Language</div>,
+}));
+
 vi.mock('@/components/ui/Button', () => ({
   Button: ({ children, onClick, loading, disabled, ...props }: any) => (
     <button

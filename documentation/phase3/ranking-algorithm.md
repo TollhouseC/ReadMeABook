@@ -5,6 +5,13 @@
 
 Evaluates and scores torrents to automatically select best audiobook download.
 
+## Release Language Filter
+- **Config:** `release_language` (category `indexers`) = `english` (default when unset) | `any` | german, french, spanish, italian, dutch, portuguese, polish, russian, swedish, danish, norwegian, finnish. Global (all users). UI: Indexers tab → Release Language (`ReleaseLanguageSection.tsx`, `GET/PUT /api/admin/settings/release-language`).
+- **Detection** (`src/lib/utils/release-language.ts` → `detectReleaseLanguage(title, {bookTitle, languages})`): Prowlarr `languages` if sent → title markers. English names count only bracketed / "X Edition|Version|Audiobook…" / "in X" (avoids "The German Girl"); native words (deutsch, español), audiobook words (hörbuch, luisterboek, lu par), bracket-only code lists (`[GER]`, `(ENG/GER)`; 2-letter codes uppercase). Markers also in the requested title are ignored. English + other → English. Non-Latin script / shared words (audiolibro) → `other`.
+- **Filter:** `requiredLanguage` option on `rankTorrents`, `rankEbookTorrents`, `rankPackResults`; hard filter. **Unknown language = kept.** `other` dropped only when English required.
+- **Callers:** search-indexers + search-ebook processors (log removed count), pack-search service, interactive audiobook routes (`languageFiltered` in response → modal shows "N hidden (other language)"), interactive ebook routes (filter only).
+- Constants: `src/lib/constants/release-languages.ts` (client-safe).
+
 ## Test Coverage
 
 **Comprehensive edge case testing includes:**

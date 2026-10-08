@@ -11,6 +11,7 @@ import { groupIndexersByCategories, getGroupDescription } from '../utils/indexer
 import { RMABLogger } from '../utils/logger';
 import { getLanguageForRegion } from '../constants/language-config';
 import { filterBlacklistedResults } from '../utils/release-blacklist';
+import { filterByLanguage, getRequiredReleaseLanguage } from '../utils/release-language';
 import { isPackSearchDue } from '../utils/pack-search-due';
 import type { AudibleRegion } from '../types/audible';
 
@@ -192,6 +193,13 @@ export async function processSearchIndexers(payload: SearchIndexersPayload): Pro
     const region = await configService.getAudibleRegion() as AudibleRegion;
     const langConfig = getLanguageForRegion(region);
 
+    // Release language (default English) — releases tagged with another language are dropped
+    const requiredLanguage = await getRequiredReleaseLanguage();
+    const languageRemoved = filterByLanguage(searchResults, requiredLanguage, effectiveSearchTitle).removed;
+    if (languageRemoved.length > 0) {
+      logger.info(`Filtered out ${languageRemoved.length} result(s) not in ${requiredLanguage}: ${languageRemoved.slice(0, 5).map(r => `"${r.title}"`).join(', ')}`);
+    }
+
     // Rank results with indexer priorities and flag configs
     // Note: rankTorrents now filters out results < 20 MB internally
     // Use effectiveSearchTitle so custom search terms are respected for ranking
@@ -206,6 +214,7 @@ export async function processSearchIndexers(payload: SearchIndexersPayload): Pro
       requireAuthor: true,  // Automatic mode - prevent wrong authors
       stopWords: langConfig.stopWords,
       characterReplacements: langConfig.characterReplacements,
+      requiredLanguage,
     });
 
     // Log filter results

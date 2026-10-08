@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { filterByLanguage, getRequiredReleaseLanguage } from '@/lib/utils/release-language';
 import { requireAuth, AuthenticatedRequest } from '@/lib/middleware/auth';
 import { getProwlarrService } from '@/lib/integrations/prowlarr.service';
 import { rankTorrents } from '@/lib/utils/ranking-algorithm';
@@ -146,6 +147,10 @@ export async function POST(request: NextRequest) {
       const region = await configService.getAudibleRegion() as AudibleRegion;
       const langConfig = getLanguageForRegion(region);
 
+      // Release language (default English): hide releases tagged with another language
+      const requiredLanguage = await getRequiredReleaseLanguage();
+      const languageFiltered = filterByLanguage(results, requiredLanguage, title).removed.length;
+
       // Rank torrents using the ranking algorithm with indexer priorities and flag configs
       // Note: rankTorrents now filters out results < 20 MB internally
       // requireAuthor: false - interactive search, show all results for user decision
@@ -155,6 +160,7 @@ export async function POST(request: NextRequest) {
         requireAuthor: false,  // Interactive mode - let user decide
         stopWords: langConfig.stopWords,
         characterReplacements: langConfig.characterReplacements,
+        requiredLanguage,
       });
 
       // Log filter results
@@ -206,6 +212,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         results: resultsWithRank,
+        languageFiltered,
+        requiredLanguage,
         message: rankedResults.length > 0
           ? `Found ${rankedResults.length} results`
           : 'No results found',

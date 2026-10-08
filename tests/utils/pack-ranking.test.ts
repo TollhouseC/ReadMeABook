@@ -96,3 +96,13 @@ describe('rankPackResults', () => {
     expect(ranked.map(c => c.result.title)).toEqual(['Brandon Sanderson - 25 Audiobooks']);
   });
 });
+
+describe('rankPackResults — release language', () => {
+  it('drops packs tagged with another language', () => {
+    const ranked = rankPackResults([
+      result('Brandon Sanderson - Mistborn Complete Series (Hörbuch) [GER]'),
+      result('Brandon Sanderson - Mistborn Complete Series [M4B]'),
+    ], { ...INPUT, requiredLanguage: 'english' });
+    expect(ranked.map(c => c.result.title)).toEqual(['Brandon Sanderson - Mistborn Complete Series [M4B]']);
+  });
+});

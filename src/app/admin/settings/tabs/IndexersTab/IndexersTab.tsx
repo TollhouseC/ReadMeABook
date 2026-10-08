@@ -14,6 +14,7 @@ import { FlagConfigRow } from '@/components/admin/FlagConfigRow';
 import { IndexerFlagConfig } from '@/lib/utils/ranking-algorithm';
 import { useIndexersSettings } from './useIndexersSettings';
 import { PackSearchSection } from './PackSearchSection';
+import { ReleaseLanguageSection } from './ReleaseLanguageSection';
 import type { Settings, SavedIndexerConfig } from '../../lib/types';
 
 interface IndexersTabProps {
@@ -194,6 +195,9 @@ export function IndexersTab({
           </p>
         )}
       </div>
+
+      {/* Release language filter (saves immediately) */}
+      <ReleaseLanguageSection />
 
       {/* Series & author packs (saves immediately) */}
       <PackSearchSection />
