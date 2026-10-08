@@ -37,9 +37,15 @@ vi.mock('@/lib/services/job-queue.service', () => ({
   getJobQueueService: () => jobQueueMock,
 }));
 
+const fixChaptersMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/utils/chapter-fixer', () => ({
+  fixChaptersIfBetter: fixChaptersMock,
+}));
+
 describe('processOrganizeFiles', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    fixChaptersMock.mockResolvedValue({ status: 'kept', reason: 'current chapters are fine' });
     // Default mock for request lookup (processor needs to determine request type)
     prismaMock.request.findUnique.mockResolvedValue({
       id: 'req-default',
@@ -85,6 +91,7 @@ describe('processOrganizeFiles', () => {
 
     expect(result.success).toBe(true);
     expect(libraryServiceMock.triggerLibraryScan).toHaveBeenCalledWith('lib-1');
+    expect(fixChaptersMock).toHaveBeenCalledWith('/media/Author/Book/Book.m4b', 'ASIN1', expect.objectContaining({ apply: true }));
   });
 
   it('skips filesystem scan when disabled', async () => {

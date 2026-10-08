@@ -31,6 +31,7 @@ export interface RequestActionsDropdownProps {
   onRetryDownload?: (requestId: string) => Promise<void>;
   onReset?: (requestId: string) => Promise<void>;
   onMerge?: (requestId: string) => Promise<void>;
+  onFixChapters?: (requestId: string) => Promise<void>;
   onViewDetails?: (asin: string) => void;
   onFetchEbook?: (requestId: string) => Promise<void>;
   onSearchTermsUpdated?: () => void;
@@ -47,6 +48,7 @@ export function RequestActionsDropdown({
   onRetryDownload,
   onReset,
   onMerge,
+  onFixChapters,
   onViewDetails,
   onFetchEbook,
   onSearchTermsUpdated,
@@ -75,6 +77,8 @@ export function RequestActionsDropdown({
   const canReset = !!onReset && ['downloading', 'processing', 'downloaded', 'available'].includes(request.status);
   // Merge into single M4B: imported multi-file books (server checks the file count)
   const canMerge = !!onMerge && !isEbook && ['downloaded', 'available'].includes(request.status);
+  // Fix chapters from Audnexus: imported single-file books with an ASIN
+  const canFixChapters = !!onFixChapters && !isEbook && !!request.asin && ['downloaded', 'available'].includes(request.status);
   const canCancel = ['pending', 'searching', 'downloading', 'awaiting_search'].includes(request.status);
   const canDelete = true; // Admins can always delete
 
@@ -187,6 +191,16 @@ export function RequestActionsDropdown({
       } catch (error) {
         console.error('Failed to queue merge:', error);
       }
+    }
+  };
+
+  const handleFixChapters = async () => {
+    setIsOpen(false);
+    if (!onFixChapters) return;
+    try {
+      await onFixChapters(request.requestId);
+    } catch (error) {
+      console.error('Failed to queue chapter fix:', error);
     }
   };
 
@@ -481,8 +495,22 @@ export function RequestActionsDropdown({
               </button>
             )}
 
+            {/* Fix chapters from Audnexus */}
+            {canFixChapters && (
+              <button
+                onClick={handleFixChapters}
+                className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 transition-colors"
+                role="menuitem"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h10M4 18h7" />
+                </svg>
+                Fix Chapters (Audnexus)
+              </button>
+            )}
+
             {/* Divider if we have search/view/retry actions and other actions */}
-            {(canSearch || canViewSource || canFetchEbook || canRetryDownload || canReset || canMerge) && (canCancel || canDelete) && (
+            {(canSearch || canViewSource || canFetchEbook || canRetryDownload || canReset || canMerge || canFixChapters) && (canCancel || canDelete) && (
               <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
             )}
 

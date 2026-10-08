@@ -13,99 +13,17 @@ import path from 'path';
 import { prisma } from '../db';
 import { RMABLogger } from '../utils/logger';
 import { getConfigService } from '../services/config.service';
-import { getLibraryService } from '../services/library';
 import { MergeLibraryBookPayload } from '../services/job-queue.service';
 import { analyzeChapterFiles, checkDiskSpace, estimateOutputSize, mergeChapters } from '../utils/chapter-merger';
 import { tagAudioFileMetadata } from '../utils/metadata-tagger';
-import { buildAudiobookPath } from '../utils/file-organizer';
 import { buildRenamedFilename } from '../utils/path-template.util';
 import { copyFile } from '../utils/copy-file';
 import { generateFilesHash } from '../utils/files-hash';
+import { resolveBookFolder, triggerLibraryScan, type BookRecord } from '../utils/library-book-files';
 import { CHAPTER_MERGE_FORMATS } from '../constants/audio-formats';
-
-interface BookRecord {
-  id: string;
-  title: string;
-  author: string;
-  narrator: string | null;
-  audibleAsin: string | null;
-  year: number | null;
-  series: string | null;
-  seriesPart: string | null;
-  filePath: string | null;
-  absItemId: string | null;
-}
-
-async function isDirectory(dir: string | null | undefined): Promise<boolean> {
-  if (!dir) return false;
-  try {
-    return (await fs.stat(dir)).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
-function isInside(child: string, parent: string): boolean {
-  const relative = path.relative(path.resolve(parent), path.resolve(child));
-  return !!relative && !relative.startsWith('..') && !path.isAbsolute(relative);
-}
-
-/** Library folder: organize's recorded path → Audiobookshelf item path → path template. */
-export async function resolveBookFolder(book: BookRecord, mediaDir: string, logger?: RMABLogger): Promise<string | null> {
-  const candidates: Array<[string, string | null]> = [['recorded file path', book.filePath]];
-
-  if (book.absItemId) {
-    try {
-      const { getABSItem } = await import('../services/audiobookshelf/api');
-      const item = await getABSItem(book.absItemId);
-      candidates.push(['Audiobookshelf item path', item?.path ?? null]);
-    } catch (error) {
-      await logger?.warn(`Could not read Audiobookshelf item ${book.absItemId}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  const template = (await getConfigService().get('audiobook_path_template')) || '{author}/{title} {asin}';
-  candidates.push(['path template', buildAudiobookPath(mediaDir, template, {
-    author: book.author,
-    title: book.title,
-    narrator: book.narrator || undefined,
-    asin: book.audibleAsin || undefined,
-    year: book.year || undefined,
-    series: book.series || undefined,
-    seriesPart: book.seriesPart || undefined,
-  })]);
-
-  for (const [source, dir] of candidates) {
-    if (dir && isInside(dir, mediaDir) && (await isDirectory(dir))) {
-      await logger?.info(`Library folder (${source}): ${dir}`);
-      return dir;
-    }
-  }
-  return null;
-}
 
 function sanitizeFilename(name: string): string {
   return name.replace(/[<>:"/\\|?*]/g, '').replace(/\s+/g, ' ').trim().replace(/^\.+|\.+$/g, '').slice(0, 200);
-}
-
-async function triggerLibraryScan(logger: RMABLogger): Promise<void> {
-  const configService = getConfigService();
-  const backendMode = await configService.getBackendMode();
-  const scanKey = backendMode === 'audiobookshelf' ? 'audiobookshelf.trigger_scan_after_import' : 'plex.trigger_scan_after_import';
-  if ((await configService.get(scanKey)) !== 'true') {
-    await logger.info(`Library scan after import is disabled — ${backendMode} will pick up the change on its next scan`);
-    return;
-  }
-  try {
-    const libraryId = backendMode === 'audiobookshelf'
-      ? await configService.get('audiobookshelf.library_id')
-      : await configService.get('plex_audiobook_library_id');
-    if (!libraryId) throw new Error('Library ID not configured');
-    await (await getLibraryService()).triggerLibraryScan(libraryId);
-    await logger.info(`Triggered ${backendMode} library scan`);
-  } catch (error) {
-    await logger.warn(`Library scan failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
 }
 
 export async function processMergeLibraryBook(payload: MergeLibraryBookPayload) {

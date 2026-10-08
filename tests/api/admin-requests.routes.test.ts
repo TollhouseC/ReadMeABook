@@ -14,6 +14,7 @@ const requireAdminMock = vi.hoisted(() => vi.fn());
 const deleteRequestMock = vi.hoisted(() => vi.fn());
 const jobQueueMock = vi.hoisted(() => ({
   addMergeLibraryBookJob: vi.fn(),
+  addFixChaptersJob: vi.fn(),
   addDownloadJob: vi.fn(),
   addSearchJob: vi.fn(),
   addNotificationJob: vi.fn().mockResolvedValue(undefined),
@@ -338,6 +339,31 @@ describe('Admin requests routes', () => {
 
     expect(response.status).toBe(400);
     expect(jobQueueMock.addMergeLibraryBookJob).not.toHaveBeenCalled();
+  });
+
+  it('queues a chapter fix for an imported book with an ASIN', async () => {
+    prismaMock.request.findFirst.mockResolvedValueOnce({
+      id: 'req-1', type: 'audiobook', status: 'available', audiobook: { title: 'Book', audibleAsin: 'B0TEST0001' },
+    });
+    jobQueueMock.addFixChaptersJob.mockResolvedValueOnce('job-7');
+
+    const { POST } = await import('@/app/api/admin/requests/[id]/fix-chapters/route');
+    const response = await POST({} as any, { params: Promise.resolve({ id: 'req-1' }) });
+
+    expect(response.status).toBe(202);
+    expect(jobQueueMock.addFixChaptersJob).toHaveBeenCalledWith({ requestId: 'req-1', mode: 'apply' });
+  });
+
+  it('refuses a chapter fix without an ASIN', async () => {
+    prismaMock.request.findFirst.mockResolvedValueOnce({
+      id: 'req-2', type: 'audiobook', status: 'available', audiobook: { title: 'Book', audibleAsin: null },
+    });
+
+    const { POST } = await import('@/app/api/admin/requests/[id]/fix-chapters/route');
+    const response = await POST({} as any, { params: Promise.resolve({ id: 'req-2' }) });
+
+    expect(response.status).toBe(400);
+    expect(jobQueueMock.addFixChaptersJob).not.toHaveBeenCalled();
   });
 
   it('returns pending approval requests', async () => {

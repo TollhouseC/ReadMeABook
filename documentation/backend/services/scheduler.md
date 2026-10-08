@@ -23,6 +23,7 @@ Manages recurring/scheduled jobs providing automated tasks (Plex scans, Audible 
 6. **cleanup_seeded_torrents** - Default: every 30 mins, deletes torrents after seeding requirements met, respects `seeding_time_minutes` config (0 = never), enabled by default
 7. **monitor_rss_feeds** - Default: every 15 mins, checks RSS feeds from enabled indexers, matches against 'awaiting_search' requests (audiobook and ebook, limit 100), triggers appropriate search jobs for matches, enabled by default
 8. **check_stalled_downloads** - Default: daily noon (`0 12 * * *`), enabled by default. See **Stalled Download Detection** below.
+9. **chapter_check_report** / **chapter_check_apply** - "Chapter Check (Report Only)" / "Chapter Fix (Apply)". Disabled by default (monthly `0 4 1 * *` if enabled); meant for Run Now. Queue `fix_chapters` library-wide with `mode` report/apply. See [features/chapter-merging.md](../../features/chapter-merging.md).
 
 ## Stalled Download Detection
 

@@ -283,6 +283,8 @@ export default function AdminLogsPage() {
               <option value="cleanup_seeded_torrents">Cleanup Seeded Torrents</option>
               <option value="monitor_rss_feeds">Monitor RSS Feeds</option>
               <option value="check_stalled_downloads">Check Stalled Downloads</option>
+              <option value="merge_library_book">Merge Library Book</option>
+              <option value="fix_chapters">Fix Chapters</option>
             </select>
           </div>
         </div>

@@ -31,6 +31,7 @@ export type JobType =
   | 'check_stalled_downloads'
   | 'search_packs'
   | 'merge_library_book'
+  | 'fix_chapters'
   | 'send_notification'
   // Ebook-specific job types
   | 'search_ebook'
@@ -122,6 +123,14 @@ export interface SearchPacksPayload extends JobPayload {
 
 export interface MergeLibraryBookPayload extends JobPayload {
   requestId: string;
+}
+
+export interface FixChaptersPayload extends JobPayload {
+  /** One book (always applies); omit for a library-wide run */
+  requestId?: string;
+  /** Library-wide: 'report' lists changes, 'apply' makes them */
+  mode?: 'report' | 'apply';
+  scheduledJobId?: string;
 }
 
 export interface SyncShelvesPayload extends JobPayload {
@@ -437,6 +446,13 @@ export class JobQueueService {
       const { processMergeLibraryBook } = await import('../processors/merge-library-book.processor');
       const payloadWithJobId = await this.ensureJobRecord(job, 'merge_library_book');
       return await processMergeLibraryBook(payloadWithJobId);
+    });
+
+    // Concurrency 1: library-wide runs are long and throttle Audnexus lookups
+    this.queue.process('fix_chapters', 1, async (job: BullJob<FixChaptersPayload>) => {
+      const { processFixChapters } = await import('../processors/fix-chapters.processor');
+      const payloadWithJobId = await this.ensureJobRecord(job, 'fix_chapters');
+      return await processFixChapters(payloadWithJobId);
     });
 
     // Send notification processor
@@ -839,6 +855,13 @@ export class JobQueueService {
    */
   async addMergeLibraryBookJob(requestId: string): Promise<string> {
     return await this.addJob('merge_library_book', { requestId } as MergeLibraryBookPayload, { priority: 6 });
+  }
+
+  /**
+   * Replace single-file books' chapters with Audnexus's when better (one book or library-wide)
+   */
+  async addFixChaptersJob(options: { requestId?: string; mode?: 'report' | 'apply'; scheduledJobId?: string }): Promise<string> {
+    return await this.addJob('fix_chapters', { ...options } as FixChaptersPayload, { priority: options.requestId ? 6 : 9 });
   }
 
   /**

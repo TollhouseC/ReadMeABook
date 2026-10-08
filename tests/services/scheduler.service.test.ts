@@ -9,6 +9,7 @@ import { createPrismaMock } from '../helpers/prisma';
 const prismaMock = createPrismaMock();
 
 const jobQueueMock = vi.hoisted(() => ({
+  addFixChaptersJob: vi.fn(),
   addRepeatableJob: vi.fn(),
   removeRepeatableJob: vi.fn(),
   addPlexScanJob: vi.fn(),
@@ -80,7 +81,14 @@ describe('SchedulerService', () => {
     const service = new SchedulerService();
     await service.start();
 
-    expect(prismaMock.scheduledJob.create).toHaveBeenCalledTimes(10);
+    expect(prismaMock.scheduledJob.create).toHaveBeenCalledTimes(12);
+    // Chapter check/fix jobs are created disabled (run manually from the Jobs page)
+    expect(prismaMock.scheduledJob.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ type: 'chapter_check_report', enabled: false }),
+    });
+    expect(prismaMock.scheduledJob.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ type: 'chapter_check_apply', enabled: false }),
+    });
     expect(prismaMock.scheduledJob.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         name: 'Check Stalled Downloads',
@@ -248,6 +256,20 @@ describe('SchedulerService', () => {
         lastRunJobId: 'bull-1',
       },
     });
+  });
+
+  it('triggers the library-wide chapter fix in apply mode', async () => {
+    prismaMock.scheduledJob.findUnique.mockResolvedValue({
+      id: 'job-ch', name: 'Chapter Fix (Apply)', type: 'chapter_check_apply', schedule: '0 4 1 * *', enabled: false, payload: {},
+    });
+    jobQueueMock.addFixChaptersJob.mockResolvedValue('bull-ch');
+    prismaMock.scheduledJob.update.mockResolvedValue({});
+
+    const { SchedulerService } = await import('@/lib/services/scheduler.service');
+    const jobId = await new SchedulerService().triggerJobNow('job-ch');
+
+    expect(jobId).toBe('bull-ch');
+    expect(jobQueueMock.addFixChaptersJob).toHaveBeenCalledWith({ mode: 'apply', scheduledJobId: 'job-ch' });
   });
 
   it('triggers Audiobookshelf scans when configured', async () => {

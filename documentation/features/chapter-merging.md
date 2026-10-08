@@ -8,6 +8,20 @@ Automatically merge multi-file audiobook downloads (separate MP3/M4A files per c
 
 ## Recent Updates
 
+### v5 - Fix Chapters on Single-File Books (2026-10-08)
+
+Replace a single-file book's chapters with Audnexus's when Audnexus matches and is clearly better. Stream copy (no re-encode).
+- **Core:** `src/lib/utils/chapter-fixer.ts` → `fixChaptersIfBetter(file, asin, {apply})` → `fixed | would_fix | kept | skipped | failed`. Formats: .m4b/.m4a/.mp4.
+- **Audnexus must fit:** same rule as merges (`isAccurate`, runtime within max(30s, 0.5%)); else `skipped`.
+- **Replace when** (`chapterReplacementReason`): ≤1 chapter; fewer than 50% of Audnexus's count; all names identical; all names number/filename-only while Audnexus has real titles. Similar chapters (even "Chapter N") are kept.
+- **Rewrite:** `ffmpeg -map 0:a [-map 0:v + attached_pic] -map_metadata 0 -map_chapters 1 -c copy -f mp4` → `<file>.rmab-tmp` (same folder) → validate (duration within max(5s, 1%), chapter count) → keep file mode → atomic rename. Failure leaves original.
+- **Triggers:**
+  - **Every import:** `organize-files.processor.ts` runs it (apply) on single-file imports with an ASIN, after copy, before scan. Never fails the import.
+  - **Per book:** Admin → Requests → actions → "Fix Chapters (Audnexus)" (available/downloaded, has ASIN) → `POST /api/admin/requests/[id]/fix-chapters` → `fix_chapters` job `{requestId}`.
+  - **Library-wide:** Jobs page → "Chapter Check (Report Only)" / "Chapter Fix (Apply)" (`fix_chapters` `{mode}`). Candidates: Audiobook rows with ASIN + (filePath|absItemId) via `resolveBookFolder`, plus on Audiobookshelf every `plex_library` item with ASIN whose ABS item `path` is inside `media_dir`; deduped by folder. Multi-file folders counted, not touched. 1s delay per Audnexus lookup. Report logs "Would fix "Title": N → M chapters (reason)"; summary counts; scan after apply if anything fixed.
+- Plex libraries: only RMAB-imported books are reachable (Plex items have no stored path).
+- Shared folder/scan helpers: `src/lib/utils/library-book-files.ts` (`resolveBookFolder`, `triggerLibraryScan`).
+
 ### v4 - Chapter Sources + Merge Library Books (2026-10-08)
 
 **Chapter source priority** (`src/lib/utils/chapter-list.ts` → `buildChapterList`, used by every merge):

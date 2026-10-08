@@ -16,6 +16,7 @@ import { generateFilesHash } from '../utils/files-hash';
 import { fixEpubForKindle, cleanupFixedEpub } from '../utils/epub-fixer';
 import { removeEmptyParentDirectories } from '../utils/cleanup-helpers';
 import { getAudibleService } from '../integrations/audible.service';
+import { fixChaptersIfBetter } from '../utils/chapter-fixer';
 
 /**
  * Process organize files job
@@ -222,6 +223,12 @@ export async function processOrganizeFiles(payload: OrganizeFilesPayload): Promi
     }
 
     logger.info(`Successfully moved ${result.filesMovedCount} files to ${result.targetPath}`);
+
+    // Single-file imports: swap in Audnexus chapters when clearly better (never fails the import)
+    if (result.audioFiles.length === 1 && audiobook.audibleAsin) {
+      const chapterFix = await fixChaptersIfBetter(result.audioFiles[0], audiobook.audibleAsin, { apply: true, logger });
+      logger.info(`Chapter check: ${chapterFix.status} — ${chapterFix.reason}`);
+    }
 
     // Generate hash from organized audio files for library matching
     const filesHash = generateFilesHash(result.audioFiles);

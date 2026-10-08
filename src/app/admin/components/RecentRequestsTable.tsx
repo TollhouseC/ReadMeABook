@@ -433,6 +433,20 @@ export function RecentRequestsTable({ ebookSidecarEnabled = false, annasArchiveB
     }
   };
 
+  const handleFixChapters = async (requestId: string) => {
+    try {
+      const response = await fetchWithAuth(`/api/admin/requests/${requestId}/fix-chapters`, { method: 'POST' });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to queue chapter fix');
+      }
+      toast.success('Chapter check queued — result is in the Logs page');
+    } catch (error) {
+      console.error('[Admin] Failed to queue chapter fix:', error);
+      toast.error(`Failed to queue chapter fix: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
   const handleFetchEbook = async (requestId: string) => {
     setIsFetchingEbook(true);
     try {
@@ -757,6 +771,7 @@ export function RecentRequestsTable({ ebookSidecarEnabled = false, annasArchiveB
                         onRetryDownload={handleRetryDownload}
                         onReset={handleReset}
                         onMerge={handleMerge}
+                        onFixChapters={handleFixChapters}
                         onViewDetails={(asin) => handleViewDetails(asin, request.status)}
                         onFetchEbook={handleFetchEbook}
                         onSearchTermsUpdated={() => mutate(apiUrl)}

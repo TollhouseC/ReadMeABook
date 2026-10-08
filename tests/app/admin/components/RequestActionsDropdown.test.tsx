@@ -150,5 +150,23 @@ describe('RequestActionsDropdown', () => {
     fireEvent.click(screen.getByTitle('Actions'));
     expect(screen.queryByText('Merge into Single M4B')).toBeNull();
   });
-});
 
+  it('offers Fix Chapters (Audnexus) for imported audiobooks with an ASIN', async () => {
+    const onFixChapters = vi.fn().mockResolvedValue(undefined);
+    const props = { onManualSearch: vi.fn(), onCancel: vi.fn(), onDelete: vi.fn(), onFixChapters };
+
+    const { unmount } = render(
+      <RequestActionsDropdown request={{ requestId: 'req-5', title: 'Book', author: 'A', status: 'available', asin: 'B0TEST0001' }} {...props} />
+    );
+    fireEvent.click(screen.getByTitle('Actions'));
+    fireEvent.click(screen.getByText('Fix Chapters (Audnexus)'));
+    await waitFor(() => expect(onFixChapters).toHaveBeenCalledWith('req-5'));
+    unmount();
+
+    render(
+      <RequestActionsDropdown request={{ requestId: 'req-6', title: 'No Asin', author: 'A', status: 'available', asin: null }} {...props} />
+    );
+    fireEvent.click(screen.getByTitle('Actions'));
+    expect(screen.queryByText('Fix Chapters (Audnexus)')).toBeNull();
+  });
+});
