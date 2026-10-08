@@ -29,7 +29,8 @@ export interface RequestActionsDropdownProps {
   onManualSearch: (requestId: string) => Promise<void>;
   onCancel: (requestId: string) => Promise<void>;
   onRetryDownload?: (requestId: string) => Promise<void>;
-  onReset?: (requestId: string) => Promise<void>;
+  /** Resolves false when the reset failed (the interactive search then stays closed) */
+  onReset?: (requestId: string) => Promise<boolean | void>;
   onMerge?: (requestId: string) => Promise<void>;
   onFixChapters?: (requestId: string) => Promise<void>;
   onViewDetails?: (asin: string) => void;
@@ -173,9 +174,14 @@ export function RequestActionsDropdown({
   const handleReset = async () => {
     setIsOpen(false);
     if (!onReset) return;
-    if (window.confirm(`Reset "${request.title}" and re-download it from scratch? This clears its library link and starts a fresh search.`)) {
+    if (window.confirm(`Reset "${request.title}"? Its current release is blacklisted and it won't search automatically — you'll pick a different release next.`)) {
       try {
-        await onReset(request.requestId);
+        const ok = await onReset(request.requestId);
+        // Straight to a manual pick so the same wrong release isn't grabbed again
+        if (ok !== false) {
+          if (isEbook) setShowInteractiveSearchEbook(true);
+          else setShowInteractiveSearch(true);
+        }
       } catch (error) {
         console.error('Failed to reset request:', error);
       }

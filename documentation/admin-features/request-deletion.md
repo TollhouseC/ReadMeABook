@@ -39,7 +39,9 @@ Allows admins to delete requests from the admin dashboard with smart handling of
 **What it does:**
 - Clears the audiobook's library linkage (`plexGuid`/`absItemId` → null, audiobook `status` → `requested`)
 - Resets the request (`status` → `pending`, `progress` 0, clears `errorMessage`/`completedAt`, resets `searchAttempts`/`downloadAttempts`/`importAttempts`)
-- Triggers a fresh search (`addSearchJob` / `addSearchEbookJob` by type)
+- **Retires the current release** (`retireCurrentDownload`, `src/lib/services/request-reset.service.ts`): blacklists it for the book (reason `reset`) so automatic searches skip it; marks its download row `blacklisted` (monitor stops, can't import over the new pick). Unfinished download → removed from the client with files; finished → left seeding; shared series/author pack → left running (only blacklisted).
+- **No automatic search** (changed 2026-10-08): request waits at `pending` (no background job searches `pending`). The UI opens the interactive search (ebook search for ebook requests) right after a successful reset; if closed, use Interactive/Manual Search from the menu later.
+- Response: `{ success, message, type, blacklisted, removedFromClient, keptSeeding, sharedPack, releaseTitle }`.
 
 **Use case:** a book whose library copy was removed or corrupted and can no longer progress (stuck showing "Processing"), which `manual-search` can't touch (it only allows `pending`/`failed`/`awaiting_search`).
 

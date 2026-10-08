@@ -476,7 +476,7 @@ export function RecentRequestsTable({ ebookSidecarEnabled = false, annasArchiveB
     }
   };
 
-  const handleReset = async (requestId: string) => {
+  const handleReset = async (requestId: string): Promise<boolean> => {
     try {
       const response = await fetchWithAuth(`/api/admin/requests/${requestId}/reset`, {
         method: 'POST',
@@ -491,11 +491,13 @@ export function RecentRequestsTable({ ebookSidecarEnabled = false, annasArchiveB
         throw new Error(responseData.message || 'Failed to reset request');
       }
 
-      toast.success(responseData.message || 'Request reset and re-search started');
+      toast.success(responseData.message || 'Request reset — choose a release');
       await mutate(apiUrl);
+      return true;
     } catch (error) {
       console.error('[Admin] Failed to reset request:', error);
       toast.error(`Failed to reset request: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return false;
     }
   };
 

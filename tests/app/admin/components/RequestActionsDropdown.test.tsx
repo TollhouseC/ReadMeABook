@@ -169,4 +169,38 @@ describe('RequestActionsDropdown', () => {
     fireEvent.click(screen.getByTitle('Actions'));
     expect(screen.queryByText('Fix Chapters (Audnexus)')).toBeNull();
   });
+
+  it('opens the interactive search right after a successful Reset (no automatic search)', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const onReset = vi.fn().mockResolvedValue(true);
+    render(
+      <RequestActionsDropdown
+        request={{ requestId: 'req-7', title: 'Wrong Grab', author: 'A', status: 'downloading' }}
+        onManualSearch={vi.fn()} onCancel={vi.fn()} onDelete={vi.fn()} onReset={onReset}
+      />
+    );
+
+    fireEvent.click(screen.getByTitle('Actions'));
+    fireEvent.click(screen.getByText('Reset & Re-request'));
+
+    await waitFor(() => expect(onReset).toHaveBeenCalledWith('req-7'));
+    expect(await screen.findByText('Interactive search for Wrong Grab')).toBeInTheDocument();
+  });
+
+  it('keeps the interactive search closed when Reset fails', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const onReset = vi.fn().mockResolvedValue(false);
+    render(
+      <RequestActionsDropdown
+        request={{ requestId: 'req-8', title: 'Failed Reset', author: 'A', status: 'available' }}
+        onManualSearch={vi.fn()} onCancel={vi.fn()} onDelete={vi.fn()} onReset={onReset}
+      />
+    );
+
+    fireEvent.click(screen.getByTitle('Actions'));
+    fireEvent.click(screen.getByText('Reset & Re-request'));
+
+    await waitFor(() => expect(onReset).toHaveBeenCalled());
+    expect(screen.queryByText('Interactive search for Failed Reset')).toBeNull();
+  });
 });

@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, requireAdmin, AuthenticatedRequest } from '@/lib/middleware/auth';
 import { prisma } from '@/lib/db';
-import { getJobQueueService } from '@/lib/services/job-queue.service';
+import { retireCurrentDownload } from '@/lib/services/request-reset.service';
 import { RMABLogger } from '@/lib/utils/logger';
 
 const logger = RMABLogger.create('API.Admin.Requests.Reset');
@@ -20,7 +20,10 @@ const logger = RMABLogger.create('API.Admin.Requests.Reset');
  * book whose library copy was removed or corrupted and can no longer progress.
  *
  * It clears the audiobook's library linkage, resets the request state and retry
- * counters, and triggers a fresh search.
+ * counters, and blacklists the release it had (unfinished downloads are removed from
+ * the client; finished ones keep seeding). It does NOT search automatically — the
+ * request waits at 'pending' for the admin to pick a release (the UI opens the
+ * interactive search right after).
  *
  * Note: if the book's item still exists in the library backend (Plex/ABS), its ASIN
  * is still in plex_library, so the next library scan will re-match this request to
@@ -77,32 +80,31 @@ export async function POST(
           },
         });
 
-        // Trigger a fresh search by type.
-        const jobQueue = getJobQueueService();
-        const audiobookData = {
-          id: requestRecord.audiobook.id,
-          title: requestRecord.audiobook.title,
-          author: requestRecord.audiobook.author,
-          asin: requestRecord.audiobook.audibleAsin || undefined,
-        };
+        // Blacklist + stop tracking the release it had (usually the wrong one). No automatic
+        // search: 'pending' isn't picked up by any background job, so the admin chooses the
+        // next release in the interactive search the UI opens after a reset.
+        const retired = await retireCurrentDownload(id, requestRecord.audiobook.id, logger);
 
-        if (requestRecord.type === 'ebook') {
-          await jobQueue.addSearchEbookJob(id, audiobookData);
-        } else {
-          await jobQueue.addSearchJob(id, audiobookData);
-        }
-
-        logger.info(`Admin reset request ${id} (was '${previousStatus}') and re-triggered search`, {
+        logger.info(`Admin reset request ${id} (was '${previousStatus}') — awaiting manual release selection`, {
           requestId: id,
           adminId: req.user!.sub,
           previousStatus,
           type: requestRecord.type,
           title: requestRecord.audiobook.title,
+          ...retired,
         });
+
+        const notes = [
+          retired.blacklisted && `blacklisted "${retired.releaseTitle}"`,
+          retired.removedFromClient && 'removed the unfinished download',
+          retired.keptSeeding && 'left the finished torrent seeding',
+        ].filter(Boolean);
 
         return NextResponse.json({
           success: true,
-          message: `Request reset from '${previousStatus}' and re-search started`,
+          message: `Request reset${notes.length ? ` (${notes.join(', ')})` : ''} — choose a release`,
+          type: requestRecord.type,
+          ...retired,
         });
       } catch (error) {
         logger.error('Failed to reset request', {
