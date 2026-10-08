@@ -30,6 +30,7 @@ export type JobType =
   | 'check_watched_lists'
   | 'check_stalled_downloads'
   | 'search_packs'
+  | 'merge_library_book'
   | 'send_notification'
   // Ebook-specific job types
   | 'search_ebook'
@@ -116,6 +117,10 @@ export interface CheckStalledDownloadsPayload extends JobPayload {
 }
 
 export interface SearchPacksPayload extends JobPayload {
+  requestId: string;
+}
+
+export interface MergeLibraryBookPayload extends JobPayload {
   requestId: string;
 }
 
@@ -425,6 +430,13 @@ export class JobQueueService {
       const { processSearchPacks } = await import('../processors/search-packs.processor');
       const payloadWithJobId = await this.ensureJobRecord(job, 'search_packs');
       return await processSearchPacks(payloadWithJobId);
+    });
+
+    // Concurrency 1: merges are disk/CPU heavy
+    this.queue.process('merge_library_book', 1, async (job: BullJob<MergeLibraryBookPayload>) => {
+      const { processMergeLibraryBook } = await import('../processors/merge-library-book.processor');
+      const payloadWithJobId = await this.ensureJobRecord(job, 'merge_library_book');
+      return await processMergeLibraryBook(payloadWithJobId);
     });
 
     // Send notification processor
@@ -820,6 +832,13 @@ export class JobQueueService {
         priority: 9, // below regular searches
       }
     );
+  }
+
+  /**
+   * Merge an already-imported multi-file book into a single M4B (admin action)
+   */
+  async addMergeLibraryBookJob(requestId: string): Promise<string> {
+    return await this.addJob('merge_library_book', { requestId } as MergeLibraryBookPayload, { priority: 6 });
   }
 
   /**

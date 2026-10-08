@@ -8,6 +8,24 @@ Automatically merge multi-file audiobook downloads (separate MP3/M4A files per c
 
 ## Recent Updates
 
+### v4 - Chapter Sources + Merge Library Books (2026-10-08)
+
+**Chapter source priority** (`src/lib/utils/chapter-list.ts` → `buildChapterList`, used by every merge):
+1. **Audnexus** — `GET api.audnex.us/books/{asin}/chapters?region=` (`src/lib/integrations/audnexus-chapters.ts`). Used only if `isAccurate` and |merged total − `runtimeLengthMs`| ≤ max(30s, 0.5%). Last chapter ends at merged length. 404/timeout/mismatch → next source.
+2. **Embedded** — `ffprobe -show_chapters` per input, offset by cumulative duration. Used when every file has chapters and total > file count (e.g. m4b parts that each carry chapters).
+3. **Per-file** — one chapter per file (previous behavior).
+- Log line `Chapter source: ...`; `MergeResult.chapterCount` = markers written.
+
+**Merge library book (admin action):**
+- UI: Admin → Requests → actions → "Merge into Single M4B" (audiobook, status `available`/`downloaded`).
+- API: `POST /api/admin/requests/[id]/merge` → 202, queues `merge_library_book` (concurrency 1).
+- Processor `src/lib/processors/merge-library-book.processor.ts`:
+  - Folder: `Audiobook.filePath` → ABS item `path` → `audiobook_path_template`; must exist inside `media_dir`.
+  - Needs ≥2 top-level audio files, same format (manual action, not the ≥3 auto rule). Ignores the `chapter_merging_enabled` setting.
+  - Merge to `TEMP_DIR` → tag if `metadata_tagging_enabled` → copy as `.partial` → size check → rename (`file_rename_template` if enabled, else `<title>.m4b`) → delete parts. Any failure keeps originals.
+  - Updates `Audiobook.fileFormat/fileSizeBytes/filesHash`; triggers library scan if `*.trigger_scan_after_import`.
+  - Seeding safe: library files are copies of the download (not hardlinks).
+
 ### v3 - Book Title Detection (2026-01-14)
 
 **Status:** ✅ Implemented

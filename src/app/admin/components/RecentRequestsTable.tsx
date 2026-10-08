@@ -419,6 +419,20 @@ export function RecentRequestsTable({ ebookSidecarEnabled = false, annasArchiveB
     }
   };
 
+  const handleMerge = async (requestId: string) => {
+    try {
+      const response = await fetchWithAuth(`/api/admin/requests/${requestId}/merge`, { method: 'POST' });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to queue merge');
+      }
+      toast.success('Merge queued — progress is in the Logs page');
+    } catch (error) {
+      console.error('[Admin] Failed to queue merge:', error);
+      toast.error(`Failed to queue merge: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
   const handleFetchEbook = async (requestId: string) => {
     setIsFetchingEbook(true);
     try {
@@ -742,6 +756,7 @@ export function RecentRequestsTable({ ebookSidecarEnabled = false, annasArchiveB
                         onCancel={handleCancel}
                         onRetryDownload={handleRetryDownload}
                         onReset={handleReset}
+                        onMerge={handleMerge}
                         onViewDetails={(asin) => handleViewDetails(asin, request.status)}
                         onFetchEbook={handleFetchEbook}
                         onSearchTermsUpdated={() => mutate(apiUrl)}

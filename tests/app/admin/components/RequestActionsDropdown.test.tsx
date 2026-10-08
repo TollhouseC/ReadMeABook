@@ -130,4 +130,25 @@ describe('RequestActionsDropdown', () => {
     fireEvent.click(screen.getByText('Grab Ebook'));
     await waitFor(() => expect(onFetchEbook).toHaveBeenCalledWith('req-2'));
   });
+
+  it('offers Merge into Single M4B only for imported audiobook requests', async () => {
+    const onMerge = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const props = { onManualSearch: vi.fn(), onCancel: vi.fn(), onDelete: vi.fn(), onMerge };
+
+    const { unmount } = render(
+      <RequestActionsDropdown request={{ requestId: 'req-3', title: 'Split Book', author: 'A', status: 'available' }} {...props} />
+    );
+    fireEvent.click(screen.getByTitle('Actions'));
+    fireEvent.click(screen.getByText('Merge into Single M4B'));
+    await waitFor(() => expect(onMerge).toHaveBeenCalledWith('req-3'));
+    unmount();
+
+    render(
+      <RequestActionsDropdown request={{ requestId: 'req-4', title: 'Busy', author: 'A', status: 'downloading' }} {...props} />
+    );
+    fireEvent.click(screen.getByTitle('Actions'));
+    expect(screen.queryByText('Merge into Single M4B')).toBeNull();
+  });
 });
+

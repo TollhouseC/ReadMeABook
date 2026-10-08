@@ -13,6 +13,7 @@ const requireAuthMock = vi.hoisted(() => vi.fn());
 const requireAdminMock = vi.hoisted(() => vi.fn());
 const deleteRequestMock = vi.hoisted(() => vi.fn());
 const jobQueueMock = vi.hoisted(() => ({
+  addMergeLibraryBookJob: vi.fn(),
   addDownloadJob: vi.fn(),
   addSearchJob: vi.fn(),
   addNotificationJob: vi.fn().mockResolvedValue(undefined),
@@ -312,6 +313,31 @@ describe('Admin requests routes', () => {
 
     expect(response.status).toBe(500);
     expect(payload.error).toBe('DeleteFailed');
+  });
+
+  it('queues a library merge for an available audiobook request', async () => {
+    prismaMock.request.findFirst.mockResolvedValueOnce({
+      id: 'req-1', type: 'audiobook', status: 'available', audiobook: { title: 'Split Book' },
+    });
+    jobQueueMock.addMergeLibraryBookJob.mockResolvedValueOnce('job-9');
+
+    const { POST } = await import('@/app/api/admin/requests/[id]/merge/route');
+    const response = await POST({} as any, { params: Promise.resolve({ id: 'req-1' }) });
+
+    expect(response.status).toBe(202);
+    expect(jobQueueMock.addMergeLibraryBookJob).toHaveBeenCalledWith('req-1');
+  });
+
+  it('refuses to merge requests that are not imported yet', async () => {
+    prismaMock.request.findFirst.mockResolvedValueOnce({
+      id: 'req-2', type: 'audiobook', status: 'downloading', audiobook: { title: 'Busy' },
+    });
+
+    const { POST } = await import('@/app/api/admin/requests/[id]/merge/route');
+    const response = await POST({} as any, { params: Promise.resolve({ id: 'req-2' }) });
+
+    expect(response.status).toBe(400);
+    expect(jobQueueMock.addMergeLibraryBookJob).not.toHaveBeenCalled();
   });
 
   it('returns pending approval requests', async () => {

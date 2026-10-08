@@ -30,6 +30,7 @@ export interface RequestActionsDropdownProps {
   onCancel: (requestId: string) => Promise<void>;
   onRetryDownload?: (requestId: string) => Promise<void>;
   onReset?: (requestId: string) => Promise<void>;
+  onMerge?: (requestId: string) => Promise<void>;
   onViewDetails?: (asin: string) => void;
   onFetchEbook?: (requestId: string) => Promise<void>;
   onSearchTermsUpdated?: () => void;
@@ -45,6 +46,7 @@ export function RequestActionsDropdown({
   onCancel,
   onRetryDownload,
   onReset,
+  onMerge,
   onViewDetails,
   onFetchEbook,
   onSearchTermsUpdated,
@@ -71,6 +73,8 @@ export function RequestActionsDropdown({
   // Reset & Re-request: for requests wedged in a state the normal search can't recover
   // from (files downloaded/available/processing but corrupt or removed from library).
   const canReset = !!onReset && ['downloading', 'processing', 'downloaded', 'available'].includes(request.status);
+  // Merge into single M4B: imported multi-file books (server checks the file count)
+  const canMerge = !!onMerge && !isEbook && ['downloaded', 'available'].includes(request.status);
   const canCancel = ['pending', 'searching', 'downloading', 'awaiting_search'].includes(request.status);
   const canDelete = true; // Admins can always delete
 
@@ -170,6 +174,18 @@ export function RequestActionsDropdown({
         await onReset(request.requestId);
       } catch (error) {
         console.error('Failed to reset request:', error);
+      }
+    }
+  };
+
+  const handleMerge = async () => {
+    setIsOpen(false);
+    if (!onMerge) return;
+    if (window.confirm(`Merge the library files for "${request.title}" into a single M4B? The original part files are removed once the merged file is verified.`)) {
+      try {
+        await onMerge(request.requestId);
+      } catch (error) {
+        console.error('Failed to queue merge:', error);
       }
     }
   };
@@ -451,8 +467,22 @@ export function RequestActionsDropdown({
               </button>
             )}
 
+            {/* Merge into single M4B */}
+            {canMerge && (
+              <button
+                onClick={handleMerge}
+                className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 transition-colors"
+                role="menuitem"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                </svg>
+                Merge into Single M4B
+              </button>
+            )}
+
             {/* Divider if we have search/view/retry actions and other actions */}
-            {(canSearch || canViewSource || canFetchEbook || canRetryDownload || canReset) && (canCancel || canDelete) && (
+            {(canSearch || canViewSource || canFetchEbook || canRetryDownload || canReset || canMerge) && (canCancel || canDelete) && (
               <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
             )}
 

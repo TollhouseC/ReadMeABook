@@ -12,6 +12,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { RMABLogger } from './logger';
 import { CHAPTER_MERGE_FORMATS } from '../constants/audio-formats';
+import { buildChapterList, toFfmetadata } from './chapter-list';
 
 const execPromise = promisify(exec);
 
@@ -391,38 +392,6 @@ export async function analyzeChapterFiles(
 }
 
 /**
- * Generate FFMETADATA1 format chapter metadata
- */
-function generateChapterMetadata(chapters: ChapterFile[]): string {
-  let metadata = ';FFMETADATA1\n';
-
-  let currentTime = 0; // milliseconds
-
-  for (const chapter of chapters) {
-    const startTime = currentTime;
-    const endTime = currentTime + chapter.duration;
-
-    // Escape special characters in title
-    const escapedTitle = chapter.chapterTitle
-      .replace(/\\/g, '\\\\')
-      .replace(/=/g, '\\=')
-      .replace(/;/g, '\\;')
-      .replace(/#/g, '\\#')
-      .replace(/\n/g, '');
-
-    metadata += '\n[CHAPTER]\n';
-    metadata += 'TIMEBASE=1/1000\n';
-    metadata += `START=${startTime}\n`;
-    metadata += `END=${endTime}\n`;
-    metadata += `title=${escapedTitle}\n`;
-
-    currentTime = endTime;
-  }
-
-  return metadata;
-}
-
-/**
  * Determine optimal bitrate for MP3 conversion
  * Uses the average bitrate across all source files to preserve quality
  */
@@ -586,6 +555,7 @@ export async function mergeChapters(
   const tempDir = path.dirname(options.outputPath);
   const concatFile = path.join(tempDir, `concat_${Date.now()}.txt`);
   const metadataFile = path.join(tempDir, `chapters_${Date.now()}.txt`);
+  let chapterCount = chapters.length;
 
   try {
     await logger?.info(`Starting chapter merge: "${options.title}" by ${options.author}`);
@@ -626,10 +596,11 @@ export async function mergeChapters(
     await fs.writeFile(concatFile, concatContent);
     await logger?.info(`Created concat list with ${chapters.length} files`);
 
-    // Create chapter metadata file
-    const chapterMetadata = generateChapterMetadata(chapters);
-    await fs.writeFile(metadataFile, chapterMetadata);
-    await logger?.info(`Generated chapter metadata with ${chapters.length} chapter markers`);
+    // Create chapter metadata file (Audnexus → embedded → one per file)
+    const chapterList = await buildChapterList(chapters, { asin: options.asin }, logger);
+    chapterCount = chapterList.chapters.length;
+    await fs.writeFile(metadataFile, toFfmetadata(chapterList.chapters));
+    await logger?.info(`Generated chapter metadata with ${chapterCount} chapter markers`);
 
     // Determine if we need to re-encode (non-AAC input requires conversion to AAC for M4B)
     const inputFormat = path.extname(chapters[0].path).toLowerCase();
@@ -775,7 +746,7 @@ export async function mergeChapters(
     const actualSizeMB = Math.round(stats.size / 1024 / 1024);
 
     await logger?.info(`✓ Chapter merge successful!`);
-    await logger?.info(`  - Chapters: ${chapters.length}`);
+    await logger?.info(`  - Chapters: ${chapterCount}`);
     await logger?.info(`  - Duration: ${formatDuration(validation.actualDuration || totalDuration)}`);
     await logger?.info(`  - Size: ${actualSizeMB}MB`);
     await logger?.info(`  - Format: M4B with embedded chapter markers`);
@@ -784,7 +755,7 @@ export async function mergeChapters(
     return {
       success: true,
       outputPath: options.outputPath,
-      chapterCount: chapters.length,
+      chapterCount,
       totalDuration,
     };
   } catch (error) {

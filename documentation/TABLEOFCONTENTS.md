@@ -71,6 +71,7 @@
 - **SABnzbd integration (Usenet/NZB)** → [phase3/sabnzbd.md](phase3/sabnzbd.md)
 - **File organization, seeding** → [phase3/file-organization.md](phase3/file-organization.md)
 - **Chapter merging (auto-merge to M4B)** → [features/chapter-merging.md](features/chapter-merging.md)
+- **Chapter sources (Audnexus/embedded), merge already-imported split books** → [features/chapter-merging.md](features/chapter-merging.md)
 - **Series & author packs (grab multi-book packs after 24h, partial download, fill out series)** → [features/series-packs.md](features/series-packs.md)
 
 ## Background Jobs
