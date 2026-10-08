@@ -89,6 +89,9 @@ PostgreSQL database storing users, audiobooks, requests, downloads, configuratio
 - `allow_alternate_versions` (bool, default false) - also request other versions of each book, pending admin approval (see [features/watched-lists.md](../features/watched-lists.md))
 - Unique: (`user_id`, `series_asin`)
 
+### Upcoming_Releases
+- Future-dated books from watched series/authors; rebuilt by `check_watched_lists`. Fields: asin, title, author, series?, series_part?, cover_art_url?, release_date (DATE), source_type (series|author), source_asin, last_seen_at. Unique (asin, source_asin). See [features/watched-lists.md](../features/watched-lists.md#upcoming-releases--pre-orders).
+
 ### Blacklisted_Releases
 - `id` (UUID PK), `audiobook_id` (FK → audiobooks, cascade), `title`, `indexer_name`, `info_hash` (lowercase), `release_url` (indexer page URL / guid), `size_bytes`, `reason` ('stalled'), `created_at`
 - Scoped to the audiobook (not the request) so entries survive re-requests

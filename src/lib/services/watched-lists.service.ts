@@ -18,6 +18,7 @@ import { findPlexMatch } from '@/lib/utils/audiobook-matcher';
 import { getSiblingAsins } from '@/lib/services/works.service';
 import { planVersionRequests, getOwnedWorkKeys, getRequestedAsins } from '@/lib/services/watched-lists-versions';
 import { RMABLogger } from '@/lib/utils/logger';
+import { isPlaceholderListing, isUpcoming, syncUpcomingReleases } from '@/lib/services/upcoming-releases.service';
 
 const logger = RMABLogger.create('WatchedLists');
 
@@ -41,6 +42,8 @@ export interface WatchedListsSyncStats {
   skippedDuplicateVersion: number;
   /** Alternate versions requested pending admin approval (series opted in) */
   alternateVersionsQueued: number;
+  /** Pre-orders held until their release date (listed as upcoming instead) */
+  skippedUpcoming: number;
   errors: number;
 }
 
@@ -72,6 +75,7 @@ export async function processWatchedLists(
     skippedExisting: 0,
     skippedDuplicateVersion: 0,
     alternateVersionsQueued: 0,
+    skippedUpcoming: 0,
     errors: 0,
   };
 
@@ -90,6 +94,7 @@ export async function processWatchedLists(
     skippedExisting: stats.skippedExisting,
     skippedDuplicateVersion: stats.skippedDuplicateVersion,
     alternateVersionsQueued: stats.alternateVersionsQueued,
+    skippedUpcoming: stats.skippedUpcoming,
     errors: stats.errors,
   });
 
@@ -188,6 +193,10 @@ async function processSeriesForUsers(
   if (groups.length > 0) {
     persistDedupGroups(groups).catch(() => {});
   }
+
+  // Refresh the upcoming-releases list for this series (best-effort)
+  await syncUpcomingReleases('series', seriesAsin, dedupedBooks, { seriesTitle: title }).catch(error =>
+    log.warn(`Failed to update upcoming releases for series ${seriesAsin}: ${error instanceof Error ? error.message : String(error)}`));
 
   // For each user watching this series, create requests for new books
   for (const subscription of subscriptions) {
@@ -305,6 +314,10 @@ async function processAuthorForUsers(
     persistDedupGroups(groups).catch(() => {});
   }
 
+  // Refresh the upcoming-releases list for this author (best-effort)
+  await syncUpcomingReleases('author', authorAsin, dedupedBooks).catch(error =>
+    log.warn(`Failed to update upcoming releases for author ${authorAsin}: ${error instanceof Error ? error.message : String(error)}`));
+
   // For each user watching this author, create requests for new books.
   // Alternate versions are a per-series opt-in, so authors always pull one version.
   for (const subscription of subscriptions) {
@@ -372,6 +385,15 @@ async function createRequestsForUser(
     if (item.action === 'skip_duplicate_version') {
       stats.skippedDuplicateVersion++;
       log.info(`Skipped "${book.title}" (${book.asin}) — another version of this book is already on the server, requested, or preferred`);
+      continue;
+    }
+
+    // Pre-orders are listed as upcoming and requested on/after release day. Held here
+    // (not before planning) so a future standard version still outranks a released
+    // dramatization in the version planner.
+    if (isUpcoming(book) || isPlaceholderListing(book)) {
+      stats.skippedUpcoming++;
+      log.info(`Holding "${book.title}" (${book.asin}) until its release date ${book.releaseDate}`);
       continue;
     }
 

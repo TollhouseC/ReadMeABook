@@ -55,6 +55,7 @@ export const createPrismaMock = () => ({
   workAsin: createModelMock(),
   watchedSeries: createModelMock(),
   watchedAuthor: createModelMock(),
+  upcomingRelease: createModelMock(),
   userHomeSection: createModelMock(),
   audibleCacheCategory: createModelMock(),
   ignoredAudiobook: createModelMock(),

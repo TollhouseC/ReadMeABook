@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils/cn';
 import { ShelvesSection } from '@/components/profile/ShelvesSection';
 import { ApiTokensSection } from '@/components/profile/ApiTokensSection';
 import { WatchedSeriesSection, WatchedAuthorsSection } from '@/components/profile/WatchedListsSection';
+import { UpcomingReleasesSection } from '@/components/profile/UpcomingReleasesSection';
 
 const statConfig = [
   { key: 'total', label: 'Total', color: 'text-gray-900 dark:text-white' },
@@ -149,6 +150,9 @@ export default function ProfilePage() {
 
         {/* Watched Authors */}
         <WatchedAuthorsSection />
+
+        {/* Upcoming releases from watched series/authors */}
+        <UpcomingReleasesSection />
 
         {/* Active Downloads */}
         {activeDownloads.length > 0 && (

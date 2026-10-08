@@ -39,8 +39,16 @@ Users watch an Audible series or author; a nightly job scrapes it and auto-reque
 - **Version label** (`audiobooks.version_label`): intrinsic marker ("Dramatized Adaptation", "Full Cast", "Abridged"), else "Narrated by <first narrator>", else "Alternate Version". The preferred version requested because another version exists stays unlabelled (main series) unless intrinsically non-standard.
 - **Import:** `applyVersionLabel()` in `organize()` / `organizeEbook()` → series "Series (Label)" and title "Title (Label)" (title unchanged if it already contains the label). Affects folder path, embedded tags (SERIES/show), merged filename, rename template — so Audiobookshelf shows it as its own series and same-title narration variants can't share a folder.
 
+## Upcoming Releases & Pre-orders
+- **Hold rule:** a planned request for a book with `releaseDate > today` (or an Audible placeholder: year ≥ 2100 / publisher "ZZZ…") is skipped (`skippedUpcoming`) and requested by the first nightly run on/after release day. Held *after* `planVersionRequests`, so a future standard version still outranks a released dramatization. Books with no date → requested as before. Existing pre-order requests untouched.
+- **Table** `upcoming_releases` (`UpcomingRelease`): asin, title, author, series, seriesPart, coverArtUrl, releaseDate (date), sourceType (series|author), sourceAsin, lastSeenAt; unique (asin, sourceAsin). Shared across users.
+- **Sync** (`syncUpcomingReleases` in `src/lib/services/upcoming-releases.service.ts`): during each series/author scrape (no extra Audible calls) — upsert future non-placeholder books, delete that source's rows not seen, prune past dates. Series rows fall back to the watched series title for `series`.
+- **Dates:** new series layout + author API give `releaseDate`; legacy series rows parsed by `parseLegacyReleaseDate` (`src/lib/utils/parse-release-date.ts`) — unambiguous dates only (part > 12 or ISO), else none.
+- **API:** `GET /api/user/upcoming` → `{ upcoming: [{asin,title,author,series,seriesPart,coverArtUrl,releaseDate}] }` for the user's watched series+authors, deduped by asin (series row preferred), soonest first.
+- **UI:** Profile → "Upcoming Releases" (`src/components/profile/UpcomingReleasesSection.tsx`, hook `useUpcomingReleases`): Title (Series #N) · Author · date. Hidden when the user watches nothing.
+
 ## Stats (job result)
-`seriesChecked`, `authorsChecked`, `booksFound`, `requestsCreated`, `skippedOwned`, `skippedExisting`, `skippedDuplicateVersion`, `alternateVersionsQueued`, `errors`. Each duplicate-version skip is logged with title + ASIN.
+`seriesChecked`, `authorsChecked`, `booksFound`, `requestsCreated`, `skippedOwned`, `skippedExisting`, `skippedDuplicateVersion`, `alternateVersionsQueued`, `skippedUpcoming`, `errors`. Each duplicate-version skip and pre-order hold is logged with title + ASIN.
 
 ## API
 | Method | Endpoint | Purpose |
@@ -50,6 +58,7 @@ Users watch an Audible series or author; a nightly job scrapes it and auto-reque
 | PATCH | `/api/user/watched-series/[id]` | Update `{ allowAlternateVersions }` |
 | DELETE | `/api/user/watched-series/[id]` | Unwatch |
 | GET/POST | `/api/user/watched-authors` | List / watch authors |
+| GET | `/api/user/upcoming` | Upcoming releases from watched series/authors |
 
 ## Files
 - Service: `src/lib/services/watched-lists.service.ts`

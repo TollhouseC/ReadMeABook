@@ -133,6 +133,39 @@ describe('processWatchedLists', () => {
     });
   });
 
+  it('holds pre-orders until release and lists them as upcoming', async () => {
+    prismaMock.watchedSeries.findMany.mockResolvedValue([{
+      id: 'ws-1', userId: 'user-1', seriesAsin: 'B001SERIES1', seriesTitle: 'Chronicles',
+      coverArtUrl: null, lastCheckedAt: null, user: { id: 'user-1', plexUsername: 'testuser' },
+    }]);
+    prismaMock.watchedAuthor.findMany.mockResolvedValue([]);
+    prismaMock.watchedSeries.update.mockResolvedValue({});
+
+    const books = [
+      { asin: 'B001BOOK01', title: 'Released', author: 'Glen Cook', releaseDate: '2020-05-01' },
+      { asin: 'B001BOOK02', title: 'Pre-order', author: 'Glen Cook', releaseDate: '2099-03-01', seriesPart: '12' },
+      { asin: 'B0H361BYVY', title: 'They Cry', author: 'Glen Cook', releaseDate: '2200-01-01' }, // placeholder
+    ];
+    mockScrapeSeriesPage.mockResolvedValueOnce({ books, hasMore: false, page: 1 });
+    mockDeduplicateAndCollectGroups.mockReturnValue({ books, groups: [] });
+    mockCreateRequestForUser.mockResolvedValue({ success: true, request: {} });
+
+    const { processWatchedLists } = await import('@/lib/services/watched-lists.service');
+    const stats = await processWatchedLists();
+
+    expect(stats.requestsCreated).toBe(1);
+    expect(stats.skippedUpcoming).toBe(2);
+    expect(mockCreateRequestForUser).toHaveBeenCalledTimes(1);
+    expect(mockCreateRequestForUser.mock.calls[0][1]).toMatchObject({ asin: 'B001BOOK01' });
+
+    // Only the real pre-order is listed (placeholder skipped), with the series title filled in
+    expect(prismaMock.upcomingRelease.upsert).toHaveBeenCalledTimes(1);
+    expect(prismaMock.upcomingRelease.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { asin_sourceAsin: { asin: 'B001BOOK02', sourceAsin: 'B001SERIES1' } },
+      create: expect.objectContaining({ series: 'Chronicles', seriesPart: '12', sourceType: 'series' }),
+    }));
+  });
+
   it('skips books already in the library', async () => {
     prismaMock.watchedSeries.findMany.mockResolvedValue([
       {

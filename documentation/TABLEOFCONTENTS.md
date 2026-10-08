@@ -45,6 +45,7 @@
 - **Auto-request new releases from watched series/authors** → [features/watched-lists.md](features/watched-lists.md)
 - **Duplicate versions (dramatized, full cast, other narrators) — one per book** → [features/watched-lists.md](features/watched-lists.md#duplicate-versions)
 - **Alternate versions opt-in (admin approval, own series in library)** → [features/watched-lists.md](features/watched-lists.md#alternate-versions-per-series-opt-in)
+- **Upcoming releases list, pre-orders held until release day** → [features/watched-lists.md](features/watched-lists.md#upcoming-releases--pre-orders)
 
 ## Audible Integration
 - **Web scraping (popular, new releases)** → [integrations/audible.md](integrations/audible.md)

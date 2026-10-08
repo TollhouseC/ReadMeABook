@@ -20,6 +20,7 @@ import { RMABLogger } from '../utils/logger';
 import { parseRuntime } from '../utils/parse-runtime';
 import { randomDelay } from '../utils/scrape-resilience';
 import { parseProductRows, parseSeriesPosition } from './audible-series-rows';
+import { parseLegacyReleaseDate } from '../utils/parse-release-date';
 
 const logger = RMABLogger.create('Audible.Series');
 
@@ -484,6 +485,10 @@ function parseSeriesBooks(
       coverArtUrl,
       rating,
       durationMinutes,
+      releaseDate: parseLegacyReleaseDate(
+        $el.find('.releaseDateLabel').text() ||
+        $el.find(buildContainsSelector('span', langConfig.scraping.releaseDateLabels)).text()
+      ),
       // h2 on series pages is the position label ("Book 1")
       seriesPart: parseSeriesPosition($el.find('h2').first().text()),
     });

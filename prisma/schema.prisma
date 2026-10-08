@@ -730,6 +730,28 @@ model WatchedAuthor {
   @@map("watched_authors")
 }
 
+// Future-dated books from watched series/authors (rebuilt by check_watched_lists).
+// Shared across users; a user's list = rows whose sourceAsin they watch.
+model UpcomingRelease {
+  id          String   @id @default(uuid())
+  asin        String
+  title       String
+  author      String
+  series      String?
+  seriesPart  String?  @map("series_part")
+  coverArtUrl String?  @map("cover_art_url") @db.Text
+  releaseDate DateTime @map("release_date") @db.Date
+  sourceType  String   @map("source_type") // series | author
+  sourceAsin  String   @map("source_asin") // watched series/author ASIN
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([asin, sourceAsin])
+  @@index([sourceAsin])
+  @@index([releaseDate])
+  @@map("upcoming_releases")
+}
+
 // ============================================================================
 // IGNORED AUDIOBOOK TABLE
 // Per-user ignore list for auto-request suppression.
