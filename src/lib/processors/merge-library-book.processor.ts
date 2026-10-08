@@ -105,7 +105,7 @@ export async function processMergeLibraryBook(payload: MergeLibraryBookPayload) 
     if (!result.success && result.error?.includes(MERGE_CANCELLED)) return await stopCancelled();
     if (!result.success) throw new Error(`Merge failed: ${result.error}`);
     // Last safe point to stop: nothing in the library has been touched yet
-    if (await progress.isCancelled()) return await stopCancelled();
+    if (await progress.isCancelled({ fresh: true })) return await stopCancelled();
     await progress.update(99, { label: 'Merging into single M4B — swapping files in', cancellable: false, force: true });
 
     // Series tags (mergeChapters writes the rest); best-effort
@@ -149,6 +149,9 @@ export async function processMergeLibraryBook(payload: MergeLibraryBookPayload) 
     });
 
     await triggerLibraryScan(logger);
+    if (await progress.isCancelled()) {
+      await logger.info('Cancel was requested while swapping files — the swap had to finish, so the merge is complete');
+    }
     await progress.update(100);
     await progress.finish('Done');
     return { success: true, folder, file: finalName, partsMerged: parts.length, chapterCount: result.chapterCount };

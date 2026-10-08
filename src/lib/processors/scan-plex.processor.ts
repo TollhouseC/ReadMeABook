@@ -555,6 +555,14 @@ export async function processScanPlex(payload: ScanPlexPayload): Promise<any> {
       logger.info(`No stuck 'downloaded' records found`);
     }
 
+    // Cleanup finished — matching can safely be skipped (the next scan does it)
+    if (await progress.isCancelled({ fresh: true })) {
+      logger.warn('Library scan cancelled by admin after cleanup — skipping request matching');
+      await progress.finish('Cancelled');
+      return { success: true, ...CANCELLED_RESULT, backendMode, totalScanned: libraryItems.length, newCount, updatedCount, skippedCount };
+    }
+    await progress.update(libraryItems.length, { label: 'Library scan — matching requests', cancellable: true, force: true });
+
     // 6. Match all non-terminal audiobook requests against library
     // Note: Ebook requests don't match to Plex/ABS library - they stop at 'downloaded' status
     logger.info(`Checking for matchable requests...`);

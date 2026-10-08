@@ -52,11 +52,20 @@ describe('RunningJobsIndicator', () => {
     expect(await screen.findByText('Stopping at the next safe point')).toBeInTheDocument();
   });
 
-  it('hides Cancel once a job is past its cancellable stage', () => {
+  it('keeps Cancel available during an uninterruptible step', () => {
     state.jobs = [{ ...chapterJob, type: 'plex_library_scan', name: 'Library Scan', progress: { ...chapterJob.progress, cancellable: false } }];
     render(<RunningJobsIndicator />);
     fireEvent.click(screen.getByRole('button', { name: '1 job(s) running' }));
-    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+  });
+
+  it('shows that a requested stop waits for the current step', () => {
+    state.jobs = [{ ...chapterJob, cancelRequested: true, progress: { ...chapterJob.progress, cancellable: false } }];
+    render(<RunningJobsIndicator />);
+    fireEvent.click(screen.getByRole('button', { name: '1 job(s) running' }));
+    expect(screen.getByText('stopping…')).toBeInTheDocument();
+    expect(screen.getByText(/finishing the current step safely/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull(); // already requested
   });
 });
 

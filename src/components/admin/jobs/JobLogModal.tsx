@@ -109,7 +109,8 @@ export function JobLogModal({ jobId, title, onClose }: JobLogModalProps) {
     return needle ? events.filter(e => e.message.toLowerCase().includes(needle)) : events;
   }, [events, filter]);
 
-  const canCancel = job && isRunning(job) && !job.cancelRequested && (job.status !== 'active' || job.progress?.cancellable);
+  // Always offered while running; the job stops at its next safe point
+  const canCancel = job && isRunning(job) && !job.cancelRequested;
 
   const handleCancel = async () => {
     if (!job) return;

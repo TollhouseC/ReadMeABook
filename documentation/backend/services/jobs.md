@@ -84,11 +84,12 @@ Manages background job queue using Bull (Redis-backed) for async tasks: searchin
 - **Long job types** (`LONG_JOB_TYPES` in job-queue.service; seeded with `{label:'Queued'}` progress when queued): `fix_chapters`, `fix_library_layout`, `merge_library_book`, `plex_library_scan`, `scan_plex`, `check_watched_lists`.
 - **Cancel checkpoints (clean):**
   - Chapter check/fix, library layout: between items; summary logged; library scan only if something changed.
-  - Merge: ffmpeg killed via `MergeOptions.shouldCancel` (error `MERGE_CANCELLED`), or before the file swap; originals untouched. Not cancellable once swapping.
-  - Library scan: only during the item pass → returns before stale cleanup/matching (a partial scan never cancels requests); not cancellable afterwards.
+  - Merge: ffmpeg killed via `MergeOptions.shouldCancel` (error `MERGE_CANCELLED`), or before the file swap; originals untouched. A cancel during the swap lets the swap finish (merge completes, logged).
+  - Library scan: during the item pass → returns before stale cleanup (a partial scan never cancels requests); during cleanup → cleanup finishes, then stops before request matching (fresh check).
+  - Cancel is always accepted while running (`cancellable:false` only means "finishing an uninterruptible step first"); UI keeps the button and shows "Stop requested — …".
   - Watched lists: between series/authors.
   - Single-book chapter fix: step labels only, not cancellable (seconds).
-- **API:** `GET /api/admin/job-runs` (long jobs running/queued, or finished <60s), `POST /api/admin/job-runs/[id]/cancel` (queued → removed via `cancelJob`; active + cancellable → flag; else 400), `GET /api/admin/job-runs/[id]/events?after=` (job id or Bull id; inclusive `after`, 500 lines/page).
+- **API:** `GET /api/admin/job-runs` (long jobs running/queued, or finished <60s), `POST /api/admin/job-runs/[id]/cancel` (queued → removed via `cancelJob`; running → flag, message says whether it stops now or after the current step; finished → 400), `GET /api/admin/job-runs/[id]/events?after=` (job id or Bull id; inclusive `after`, 500 lines/page).
 - **UI:** header `RunningJobsIndicator` (admins; hidden when idle; polls 3s while running, 30s otherwise) → `RunningJobsList` (bars, Cancel / Remove from queue, View log). Jobs page: "Running now" + per-scheduled-job "Log" (last run via `lastRunJobId`). `JobLogModal`: live log (2s poll while running, pages long logs), filter + quick filters (Would fix, Fixed, Corrupt, Nested, Moved, Failed). Labels: `src/lib/constants/job-labels.ts`.
 
 ## Job Payloads

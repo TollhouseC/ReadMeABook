@@ -14,7 +14,9 @@ const logger = RMABLogger.create('API.Admin.JobRuns.Cancel');
 
 /**
  * POST /api/admin/job-runs/[id]/cancel
- * Queued job → removed from the queue. Running long job → asked to stop at its next safe point.
+ * Queued job → removed from the queue. Running job → always accepted: it stops at its next
+ * safe point (during an uninterruptible step, e.g. a scan's cleanup or a merge's file swap,
+ * it finishes that step first).
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   return requireAuth(request, async (req: AuthenticatedRequest) => {
@@ -30,14 +32,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           return NextResponse.json({ success: true, message: 'Removed from the queue' });
         }
 
-        const cancellable = (job.progress as { cancellable?: boolean } | null)?.cancellable === true;
-        if (job.status !== 'active' || !cancellable) {
-          return NextResponse.json({ error: 'NotCancellable', message: 'This job can no longer be cancelled' }, { status: 400 });
+        if (!(await requestJobCancel(id))) {
+          return NextResponse.json({ error: 'NotRunning', message: 'This job has already finished' }, { status: 400 });
         }
 
-        await requestJobCancel(id);
+        // cancellable=false: inside a step that must finish (cleanup, file swap) — it stops right after
+        const stopsNow = (job.progress as { cancellable?: boolean } | null)?.cancellable !== false;
         logger.info(`Admin ${req.user?.id} requested cancel of job ${id} (${job.type})`);
-        return NextResponse.json({ success: true, message: 'Stopping at the next safe point' });
+        return NextResponse.json({
+          success: true,
+          message: stopsNow ? 'Stopping at the next safe point' : 'Will stop as soon as the current step finishes safely',
+        });
       } catch (error) {
         logger.error('Failed to cancel job', { error: error instanceof Error ? error.message : String(error) });
         return NextResponse.json({ error: 'CancelError', message: 'Failed to cancel job' }, { status: 500 });

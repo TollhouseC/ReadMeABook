@@ -59,11 +59,23 @@ describe('POST /api/admin/job-runs/[id]/cancel', () => {
     expect(prismaMock.job.update).toHaveBeenCalledWith({ where: { id: 'j2' }, data: { cancelRequested: true } });
   });
 
-  it('refuses a job past its cancellable stage', async () => {
-    prismaMock.job.findUnique.mockResolvedValue({ id: 'j3', type: 'plex_library_scan', status: 'active', progress: { cancellable: false } });
+  it('accepts a cancel during an uninterruptible step and says it will stop after it', async () => {
+    prismaMock.job.findUnique
+      .mockResolvedValueOnce({ id: 'j3', type: 'plex_library_scan', status: 'active', progress: { cancellable: false } })
+      .mockResolvedValueOnce({ status: 'active' });
     const { POST } = await import('@/app/api/admin/job-runs/[id]/cancel/route');
-    expect((await POST({} as any, params('j3'))).status).toBe(400);
-    expect(prismaMock.job.update).not.toHaveBeenCalled();
+    const res = await POST({} as any, params('j3'));
+    expect(res.status).toBe(200);
+    expect((await res.json()).message).toMatch(/current step finishes/);
+    expect(prismaMock.job.update).toHaveBeenCalledWith({ where: { id: 'j3' }, data: { cancelRequested: true } });
+  });
+
+  it('rejects a cancel for a job that already finished', async () => {
+    prismaMock.job.findUnique
+      .mockResolvedValueOnce({ id: 'j4', type: 'fix_chapters', status: 'completed', progress: { cancellable: true } })
+      .mockResolvedValueOnce({ status: 'completed' });
+    const { POST } = await import('@/app/api/admin/job-runs/[id]/cancel/route');
+    expect((await POST({} as any, params('j4'))).status).toBe(400);
   });
 });
 

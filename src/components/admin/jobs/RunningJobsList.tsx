@@ -54,7 +54,8 @@ export function RunningJobsList({ jobs, onChanged, emptyMessage = 'No long-runni
     <div className="space-y-3">
       {message && <p className="text-xs text-gray-600 dark:text-gray-300">{message}</p>}
       {jobs.map(job => {
-        const cancellable = isRunning(job) && !job.cancelRequested && (job.status !== 'active' || job.progress?.cancellable);
+        // Always offered while running; the job stops at its next safe point
+        const cancellable = isRunning(job) && !job.cancelRequested;
         return (
           <div key={job.id} className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 space-y-2">
             <div className="flex items-start justify-between gap-3">
@@ -67,6 +68,13 @@ export function RunningJobsList({ jobs, onChanged, emptyMessage = 'No long-runni
               </span>
             </div>
             <JobProgressBar progress={job.progress} status={job.status} startedAt={job.startedAt} completedAt={job.completedAt} />
+            {job.cancelRequested && isRunning(job) && (
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                {job.progress?.cancellable === false
+                  ? 'Stop requested — finishing the current step safely, then stopping'
+                  : 'Stop requested — stopping at the next safe point'}
+              </p>
+            )}
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setLogJob(job)}

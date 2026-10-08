@@ -351,6 +351,30 @@ describe('processScanPlex', () => {
     expect(prismaMock.request.update).not.toHaveBeenCalled();
   });
 
+  it('finishes cleanup when cancelled after the item pass, then skips matching', async () => {
+    configMock.getBackendMode.mockResolvedValue('plex');
+    configMock.getPlexConfig.mockResolvedValue({ serverUrl: 'http://plex', authToken: 'token', libraryId: 'lib-1', machineIdentifier: 'machine' });
+    libraryServiceMock.getCoverCachingParams.mockResolvedValue({ backendBaseUrl: 'http://plex', authToken: 'token', backendMode: 'plex' });
+    libraryServiceMock.getLibraryItems.mockResolvedValue([
+      { id: 'r1', externalId: 'g1', title: 'One', author: 'A', addedAt: new Date(), updatedAt: new Date() },
+    ]);
+    prismaMock.plexLibrary.findFirst.mockResolvedValue(null);
+    prismaMock.plexLibrary.create.mockResolvedValue({ id: 'n', plexGuid: 'g1' });
+    prismaMock.plexLibrary.findMany.mockResolvedValue([]);
+    prismaMock.audiobook.findMany.mockResolvedValue([]);
+    prismaMock.request.findMany.mockResolvedValue([]);
+    // Not cancelled during the item pass; cancel arrives during cleanup
+    prismaMock.job.findUnique.mockResolvedValueOnce({ cancelRequested: false }).mockResolvedValue({ cancelRequested: true });
+
+    const { processScanPlex } = await import('@/lib/processors/scan-plex.processor');
+    const result = await processScanPlex({ jobId: 'job-late-cancel' });
+
+    expect(result).toMatchObject({ cancelled: true, totalScanned: 1 });
+    expect(prismaMock.plexLibrary.findMany).toHaveBeenCalled(); // cleanup ran
+    const matcher = await import('@/lib/utils/audiobook-matcher');
+    expect(matcher.findPlexMatch).not.toHaveBeenCalled(); // matching skipped
+  });
+
   it('cancels requests stuck at downloaded whose book is no longer in the library', async () => {
     configMock.getBackendMode.mockResolvedValue('plex');
     configMock.getPlexConfig.mockResolvedValue({

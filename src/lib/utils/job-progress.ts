@@ -16,14 +16,18 @@ export interface JobProgressState {
   total: number | null;
   label: string;
   detail?: string;
+  /**
+   * true: a cancel request takes effect at the next checkpoint.
+   * false: inside a step that must finish first (cleanup, file swap) — cancel waits for it.
+   */
   cancellable: boolean;
   updatedAt: string;
 }
 
 export interface JobProgressReporter {
   update(current: number, options?: { total?: number | null; label?: string; detail?: string; cancellable?: boolean; force?: boolean }): Promise<void>;
-  /** Checks the cancel flag (cached for CANCEL_CHECK_MS). */
-  isCancelled(): Promise<boolean>;
+  /** Checks the cancel flag (cached for CANCEL_CHECK_MS unless `fresh`, used at key checkpoints). */
+  isCancelled(options?: { fresh?: boolean }): Promise<boolean>;
   /** Last known cancel flag without hitting the database (for sync callbacks such as ffmpeg progress). */
   readonly cancelledSync: boolean;
   /** Final write (always flushed). */
@@ -72,9 +76,9 @@ export function createJobProgress(
       if (opts.cancellable !== undefined) state.cancellable = opts.cancellable;
       if (opts.force || Date.now() - lastWrite >= WRITE_INTERVAL_MS) await write();
     },
-    async isCancelled() {
+    async isCancelled(opts = {}) {
       if (!jobId || cancelled) return cancelled;
-      if (Date.now() - lastCancelCheck < CANCEL_CHECK_MS) return cancelled;
+      if (!opts.fresh && Date.now() - lastCancelCheck < CANCEL_CHECK_MS) return cancelled;
       lastCancelCheck = Date.now();
       try {
         const row = await prisma.job.findUnique({ where: { id: jobId }, select: { cancelRequested: true } });
