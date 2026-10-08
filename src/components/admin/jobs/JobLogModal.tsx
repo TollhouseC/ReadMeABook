@@ -35,7 +35,7 @@ interface JobSummary {
 /** Matches the events API page size */
 const PAGE_SIZE = 500;
 
-const QUICK_FILTERS = ['Would fix', 'Fixed', 'Corrupt', 'Nested', 'Moved', 'Failed'];
+const QUICK_FILTERS = ['Would sync', 'Synced', 'Would fix', 'Fixed', 'Corrupt', 'Nested', 'Moved', 'Failed'];
 
 interface JobLogModalProps {
   /** Job ID or Bull job ID (scheduled jobs' lastRunJobId) */

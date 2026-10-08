@@ -142,8 +142,8 @@ export interface FixLibraryLayoutPayload extends JobPayload {
 export interface FixChaptersPayload extends JobPayload {
   /** One book (always applies); omit for a library-wide run */
   requestId?: string;
-  /** Library-wide: 'report' lists changes, 'apply' makes them */
-  mode?: 'report' | 'apply';
+  /** Library-wide: 'report' lists changes, 'apply' makes them; 'sync_*' copies file chapters to Audiobookshelf */
+  mode?: 'report' | 'apply' | 'sync_report' | 'sync_apply';
   scheduledJobId?: string;
 }
 
@@ -884,7 +884,7 @@ export class JobQueueService {
   /**
    * Replace single-file books' chapters with Audnexus's when better (one book or library-wide)
    */
-  async addFixChaptersJob(options: { requestId?: string; mode?: 'report' | 'apply'; scheduledJobId?: string }): Promise<string> {
+  async addFixChaptersJob(options: { requestId?: string; mode?: FixChaptersPayload['mode']; scheduledJobId?: string }): Promise<string> {
     return await this.addJob('fix_chapters', { ...options } as FixChaptersPayload, { priority: options.requestId ? 6 : 9 });
   }
 

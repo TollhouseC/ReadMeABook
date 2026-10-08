@@ -15,6 +15,7 @@ import path from 'path';
 import { prisma } from '../db';
 import { RMABLogger } from '../utils/logger';
 import { createJobProgress, CANCELLED_RESULT } from '../utils/job-progress';
+import { isAudiobookshelfBackend, syncFileChaptersToABS } from '../services/abs-chapter-sync';
 import { getConfigService } from '../services/config.service';
 import type { FixChaptersPayload } from '../services/job-queue.service';
 import { AUDIO_EXTENSIONS } from '../constants/audio-formats';
@@ -25,16 +26,20 @@ import { learnPrefixMappings, localPathCandidates, resolveLocalPath } from '../u
 const LOOKUP_DELAY_MS = 1000;
 
 /** A book to check: a folder (expects one audio file) or, for root-level ABS items, the file itself. */
-interface Candidate {
+export interface Candidate {
   title: string;
   asin: string;
   folder?: string;
   file?: string;
+  /** Audiobookshelf item, when known — its chapter list is kept in sync with the file */
+  absItemId?: string;
+  /** Chapter count Audiobookshelf shows (from the library listing), when available */
+  absChapterCount?: number;
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function getMediaDir(): Promise<string> {
+export async function getMediaDir(): Promise<string> {
   return (await getConfigService().get('media_dir')) || process.env.MEDIA_DIR || '/media/audiobooks';
 }
 
@@ -62,7 +67,11 @@ async function processSingleBook(requestId: string, logger: RMABLogger, jobId?: 
   await logger.info(`"${book.title}": ${result.status} — ${result.reason} (current ${result.currentCount}, Audnexus ${result.audnexusCount})`);
   if (result.status === 'failed') throw new Error(result.reason);
   if (result.status === 'corrupt') throw new Error(`"${book.title}" is unplayable (${result.reason}) — re-download it`);
-  if (result.status === 'fixed') await triggerLibraryScan(logger);
+  if (result.status === 'fixed') {
+    // ABS keeps its own chapter list (metadata.json wins on rescan) — update it directly
+    if (book.absItemId && (await isAudiobookshelfBackend())) await syncFileChaptersToABS(book.absItemId, file, logger);
+    await triggerLibraryScan(logger);
+  }
   return { success: true, ...result };
 }
 
@@ -120,7 +129,10 @@ async function collectAudiobookshelfCandidates(
       continue;
     }
     const title = item.media?.metadata?.title || path.basename(local);
-    add(item.isFile ? { title, asin, file: local } : { title, asin, folder: local });
+    const absChapterCount = typeof item.media?.numChapters === 'number' ? item.media.numChapters : undefined;
+    add(item.isFile
+      ? { title, asin, file: local, absItemId: item.id, absChapterCount }
+      : { title, asin, folder: local, absItemId: item.id, absChapterCount });
   }
 
   await logger.info(
@@ -131,13 +143,19 @@ async function collectAudiobookshelfCandidates(
   if (example) await logger.info(`Example unreachable item: ${example}`);
 }
 
-async function collectCandidates(mediaDir: string, logger: RMABLogger): Promise<Candidate[]> {
+export async function collectCandidates(mediaDir: string, logger: RMABLogger): Promise<Candidate[]> {
   const candidates: Candidate[] = [];
-  const seen = new Set<string>();
+  const byKey = new Map<string, Candidate>();
   const add = (candidate: Candidate) => {
     const key = path.resolve(candidate.file ?? candidate.folder!);
-    if (seen.has(key)) return;
-    seen.add(key);
+    const existing = byKey.get(key);
+    if (existing) {
+      // Same book seen as an import and as an ABS item — keep the ABS details
+      existing.absItemId ??= candidate.absItemId;
+      existing.absChapterCount ??= candidate.absChapterCount;
+      return;
+    }
+    byKey.set(key, candidate);
     candidates.push(candidate);
   };
 
@@ -149,7 +167,7 @@ async function collectCandidates(mediaDir: string, logger: RMABLogger): Promise<
   for (const book of books as BookRecord[]) {
     const folder = await resolveBookFolder(book, mediaDir);
     if (!folder || !book.audibleAsin) continue;
-    add({ title: book.title, asin: book.audibleAsin, folder });
+    add({ title: book.title, asin: book.audibleAsin, folder, absItemId: book.absItemId || undefined });
     if (book.absItemId) importedPairs.push({ absItemId: book.absItemId, localPath: folder });
   }
 
@@ -179,6 +197,7 @@ async function processLibrary(mode: 'report' | 'apply', logger: RMABLogger, jobI
   const counts: Record<ChapterFixStatus | 'not_single_file', number> = {
     fixed: 0, would_fix: 0, kept: 0, skipped: 0, corrupt: 0, failed: 0, not_single_file: 0,
   };
+  const absMode = apply && (await isAudiobookshelfBackend());
 
   for (const [index, candidate] of candidates.entries()) {
     if (await progress.isCancelled()) {
@@ -201,6 +220,7 @@ async function processLibrary(mode: 'report' | 'apply', logger: RMABLogger, jobI
       await logger.info(`Would fix "${candidate.title}": ${result.currentCount} → ${result.audnexusCount} chapters (${result.reason})`);
     } else if (result.status === 'fixed') {
       await logger.info(`Fixed "${candidate.title}": ${result.currentCount} → ${result.audnexusCount} chapters (${result.reason})`);
+      if (absMode && candidate.absItemId) await syncFileChaptersToABS(candidate.absItemId, file, logger);
     } else if (result.status === 'corrupt') {
       await logger.warn(`Corrupt (unplayable) "${candidate.title}": ${file} — ${result.reason}`);
     } else if (result.status === 'failed') {
@@ -222,7 +242,10 @@ async function processLibrary(mode: 'report' | 'apply', logger: RMABLogger, jobI
 
 export async function processFixChapters(payload: FixChaptersPayload) {
   const logger = RMABLogger.forJob(payload.jobId, 'FixChapters');
-  return payload.requestId
-    ? processSingleBook(payload.requestId, logger, payload.jobId)
-    : processLibrary(payload.mode === 'apply' ? 'apply' : 'report', logger, payload.jobId);
+  if (payload.requestId) return processSingleBook(payload.requestId, logger, payload.jobId);
+  if (payload.mode === 'sync_report' || payload.mode === 'sync_apply') {
+    const { processChapterSync } = await import('./chapter-sync');
+    return processChapterSync(payload.mode === 'sync_apply', logger, payload.jobId);
+  }
+  return processLibrary(payload.mode === 'apply' ? 'apply' : 'report', logger, payload.jobId);
 }

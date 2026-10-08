@@ -8,6 +8,14 @@ Automatically merge multi-file audiobook downloads (separate MP3/M4A files per c
 
 ## Recent Updates
 
+### v6 - Sync Chapters to Audiobookshelf (2026-10-09)
+
+ABS keeps its own chapter list (DB + `metadata.json` with "Store metadata with item" — which wins over the audio file on rescan), so fixed files kept showing old chapters in ABS.
+- **Service:** `src/lib/services/abs-chapter-sync.ts` → `pushChaptersToABS(itemId, chapters)` = `POST /api/items/:id/chapters` `{ chapters: [{ id, start, end, title }] }` (seconds); `syncFileChaptersToABS(itemId, file)` (probes the file's chapters, best-effort, never throws); `getABSChapterCount`.
+- **Automatic (ABS backend, item known):** after a per-book or library-wide chapter **fix** and after **Merge into Single M4B**. New imports don't need it (ABS reads a new book fresh).
+- **Catch-up:** Jobs page → "Chapter Sync to Audiobookshelf (Report Only)" / "(Apply)" (`chapter_sync_report|apply` → `fix_chapters` job, mode `sync_report|sync_apply`, `src/lib/processors/chapter-sync.ts`). For single-file books with an ABS item: sync when file chapters > 1 and > ABS count (never overwrites a richer ABS list). No Audnexus calls. Log: `Would sync "Title": Audiobookshelf N → file M chapters`.
+- Candidates carry `absItemId` / `absChapterCount` (ABS listing `media.numChapters`, else `GET /items/:id`).
+
 ### v5 - Fix Chapters on Single-File Books (2026-10-08)
 
 Replace a single-file book's chapters with Audnexus's when Audnexus matches and is clearly better. Stream copy (no re-encode).

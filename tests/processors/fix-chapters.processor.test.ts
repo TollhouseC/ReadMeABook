@@ -19,6 +19,8 @@ const getABSLibraryItemsMock = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/db', () => ({ prisma: prismaMock }));
 vi.mock('@/lib/services/config.service', () => ({ getConfigService: () => configMock }));
 vi.mock('@/lib/services/library', () => ({ getLibraryService: () => libraryServiceMock }));
+const absSyncMock = vi.hoisted(() => ({ isAudiobookshelfBackend: vi.fn(), syncFileChaptersToABS: vi.fn() }));
+vi.mock('@/lib/services/abs-chapter-sync', () => absSyncMock);
 vi.mock('@/lib/services/audiobookshelf/api', () => ({ getABSLibraryItems: getABSLibraryItemsMock, getABSItem: vi.fn() }));
 vi.mock('@/lib/utils/chapter-fixer', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/utils/chapter-fixer')>()),
@@ -124,10 +126,15 @@ describe('processFixChapters — library-wide', () => {
       { id: 'abs-5', path: '/audiobooks/Author/No Asin', relPath: 'Author/No Asin', isFile: false, media: { metadata: { title: 'No Asin' } } },
     ]);
 
+    absSyncMock.isAudiobookshelfBackend.mockResolvedValue(true);
     const result = await run({ mode: 'apply' });
 
     // Imported (deduped with abs-1), Abs Only, Root Single — Gone is missing on disk, No Asin can't be looked up
     expect(fixMock).toHaveBeenCalledTimes(3);
+    // ABS keeps its own chapter list → each fixed book's chapters are pushed to its ABS item
+    expect(absSyncMock.syncFileChaptersToABS).toHaveBeenCalledWith('abs-1', path.join(imported, 'Imported.m4b'), expect.anything());
+    expect(absSyncMock.syncFileChaptersToABS).toHaveBeenCalledWith('abs-2', path.join(absOnly, 'Abs Only.m4b'), expect.anything());
+    expect(absSyncMock.syncFileChaptersToABS).toHaveBeenCalledTimes(3);
     expect(fixMock).toHaveBeenCalledWith(path.join(absOnly, 'Abs Only.m4b'), 'ASIN-x', expect.anything());
     expect(fixMock).toHaveBeenCalledWith(expect.stringMatching(/Root Single\.m4b$/), 'ASIN-r', expect.anything());
     expect(result).toMatchObject({ mode: 'apply', checked: 3, fixed: 3 });

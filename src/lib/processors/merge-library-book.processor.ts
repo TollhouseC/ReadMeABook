@@ -16,6 +16,7 @@ import { getConfigService } from '../services/config.service';
 import { MergeLibraryBookPayload } from '../services/job-queue.service';
 import { analyzeChapterFiles, checkDiskSpace, estimateOutputSize, mergeChapters, MERGE_CANCELLED } from '../utils/chapter-merger';
 import { createJobProgress, CANCELLED_RESULT } from '../utils/job-progress';
+import { isAudiobookshelfBackend, syncFileChaptersToABS } from '../services/abs-chapter-sync';
 import { tagAudioFileMetadata } from '../utils/metadata-tagger';
 import { buildRenamedFilename } from '../utils/path-template.util';
 import { copyFile } from '../utils/copy-file';
@@ -148,6 +149,8 @@ export async function processMergeLibraryBook(payload: MergeLibraryBookPayload) 
       },
     });
 
+    // ABS keeps its own chapter list (metadata.json wins on rescan) — give it the merged file's
+    if (book.absItemId && (await isAudiobookshelfBackend())) await syncFileChaptersToABS(book.absItemId, finalPath, logger);
     await triggerLibraryScan(logger);
     if (await progress.isCancelled()) {
       await logger.info('Cancel was requested while swapping files — the swap had to finish, so the merge is complete');

@@ -10,7 +10,7 @@ import { RMABLogger } from '../utils/logger';
 
 const logger = RMABLogger.create('Scheduler');
 
-export type ScheduledJobType = 'plex_library_scan' | 'plex_recently_added_check' | 'audible_refresh' | 'retry_missing_torrents' | 'retry_failed_imports' | 'cleanup_seeded_torrents' | 'monitor_rss_feeds' | 'sync_reading_shelves' | 'check_watched_lists' | 'check_stalled_downloads' | 'chapter_check_report' | 'chapter_check_apply' | 'library_layout_report' | 'library_layout_apply';
+export type ScheduledJobType = 'plex_library_scan' | 'plex_recently_added_check' | 'audible_refresh' | 'retry_missing_torrents' | 'retry_failed_imports' | 'cleanup_seeded_torrents' | 'monitor_rss_feeds' | 'sync_reading_shelves' | 'check_watched_lists' | 'check_stalled_downloads' | 'chapter_check_report' | 'chapter_check_apply' | 'library_layout_report' | 'library_layout_apply' | 'chapter_sync_report' | 'chapter_sync_apply';
 
 export interface ScheduledJob {
   id: string;
@@ -163,6 +163,22 @@ export class SchedulerService {
         name: 'Chapter Fix (Apply)',
         type: 'chapter_check_apply' as ScheduledJobType,
         schedule: '0 4 1 * *', // Monthly if enabled
+        enabled: false,
+        payload: {},
+      },
+      {
+        // Run manually: lists books whose file chapters are better than Audiobookshelf's
+        name: 'Chapter Sync to Audiobookshelf (Report Only)',
+        type: 'chapter_sync_report' as ScheduledJobType,
+        schedule: '0 4 2 * *', // Monthly if enabled
+        enabled: false,
+        payload: {},
+      },
+      {
+        // Run manually: pushes those file chapters to Audiobookshelf
+        name: 'Chapter Sync to Audiobookshelf (Apply)',
+        type: 'chapter_sync_apply' as ScheduledJobType,
+        schedule: '0 4 2 * *', // Monthly if enabled
         enabled: false,
         payload: {},
       },
@@ -444,6 +460,13 @@ export class SchedulerService {
       case 'chapter_check_apply':
         bullJobId = await this.jobQueue.addFixChaptersJob({
           mode: job.type === 'chapter_check_apply' ? 'apply' : 'report',
+          scheduledJobId: job.id,
+        });
+        break;
+      case 'chapter_sync_report':
+      case 'chapter_sync_apply':
+        bullJobId = await this.jobQueue.addFixChaptersJob({
+          mode: job.type === 'chapter_sync_apply' ? 'sync_apply' : 'sync_report',
           scheduledJobId: job.id,
         });
         break;

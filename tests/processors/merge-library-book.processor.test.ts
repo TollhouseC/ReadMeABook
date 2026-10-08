@@ -28,6 +28,8 @@ vi.mock('@/lib/services/library', () => ({ getLibraryService: () => libraryServi
 vi.mock('@/lib/utils/chapter-merger', () => mergerMock);
 vi.mock('@/lib/utils/metadata-tagger', () => ({ tagAudioFileMetadata: vi.fn() }));
 vi.mock('@/lib/services/audiobookshelf/api', () => ({ getABSItem: getABSItemMock }));
+const absSyncMock = vi.hoisted(() => ({ isAudiobookshelfBackend: vi.fn(), syncFileChaptersToABS: vi.fn() }));
+vi.mock('@/lib/services/abs-chapter-sync', () => absSyncMock);
 
 let mediaDir: string;
 let tempDir: string;
@@ -95,6 +97,18 @@ describe('processMergeLibraryBook', () => {
     }));
     expect(libraryServiceMock.triggerLibraryScan).toHaveBeenCalledWith('lib-1');
     expect(await fs.readdir(tempDir)).toEqual([]); // temp output cleaned up
+    expect(absSyncMock.syncFileChaptersToABS).not.toHaveBeenCalled(); // no ABS item on this book
+  });
+
+  it('sends the merged chapters to Audiobookshelf when the book has an ABS item', async () => {
+    for (let i = 1; i <= 2; i++) await fs.writeFile(path.join(bookDir, `p${i}.m4b`), 'x');
+    setRequest({ absItemId: 'abs-77' });
+    getABSItemMock.mockResolvedValue({ path: '/elsewhere' });
+    absSyncMock.isAudiobookshelfBackend.mockResolvedValue(true);
+
+    await run();
+
+    expect(absSyncMock.syncFileChaptersToABS).toHaveBeenCalledWith('abs-77', path.join(bookDir, 'HWFwM 10.m4b'), expect.anything());
   });
 
   it('keeps every original part when the merge fails', async () => {
