@@ -14,7 +14,8 @@ import { prisma } from '../db';
 import { RMABLogger } from '../utils/logger';
 import { getConfigService } from '../services/config.service';
 import { MergeLibraryBookPayload } from '../services/job-queue.service';
-import { analyzeChapterFiles, checkDiskSpace, estimateOutputSize, mergeChapters } from '../utils/chapter-merger';
+import { analyzeChapterFiles, checkDiskSpace, estimateOutputSize, mergeChapters, MERGE_CANCELLED } from '../utils/chapter-merger';
+import { createJobProgress, CANCELLED_RESULT } from '../utils/job-progress';
 import { tagAudioFileMetadata } from '../utils/metadata-tagger';
 import { buildRenamedFilename } from '../utils/path-template.util';
 import { copyFile } from '../utils/copy-file';
@@ -29,6 +30,8 @@ function sanitizeFilename(name: string): string {
 export async function processMergeLibraryBook(payload: MergeLibraryBookPayload) {
   const { requestId, jobId } = payload;
   const logger = RMABLogger.forJob(jobId, 'MergeLibraryBook');
+  const progress = createJobProgress(jobId, 'Merging into single M4B — preparing', { total: 100, cancellable: true });
+  await progress.update(0, { force: true });
 
   const request = await prisma.request.findFirst({
     where: { id: requestId, deletedAt: null },
@@ -75,10 +78,19 @@ export async function processMergeLibraryBook(payload: MergeLibraryBookPayload) 
 
   const tempOutput = path.join(tempDir, `merge_${requestId}.m4b`);
   const tempFiles = [tempOutput];
+  // Refresh the cancel flag in the background; ffmpeg's progress callback reads it synchronously
+  const cancelPoll = setInterval(() => { progress.isCancelled().catch(() => {}); }, 2000);
+  const stopCancelled = async () => {
+    await logger.warn('Merge cancelled by admin — original files left untouched');
+    await progress.finish('Cancelled');
+    return { success: false, ...CANCELLED_RESULT, folder };
+  };
   try {
     const chapters = await analyzeChapterFiles(parts, logger);
     if (chapters.length === 0) throw new Error('Chapter analysis found no usable files');
 
+    if (await progress.isCancelled()) return await stopCancelled();
+    await progress.update(0, { label: 'Merging into single M4B', detail: book.title, force: true });
     const result = await mergeChapters(chapters, {
       title: book.title,
       author: book.author,
@@ -87,8 +99,14 @@ export async function processMergeLibraryBook(payload: MergeLibraryBookPayload) 
       asin: book.audibleAsin || undefined,
       outputPath: tempOutput,
       dirMode,
+      onProgress: percent => { progress.update(Math.min(percent, 99)).catch(() => {}); },
+      shouldCancel: () => progress.cancelledSync,
     }, logger);
+    if (!result.success && result.error?.includes(MERGE_CANCELLED)) return await stopCancelled();
     if (!result.success) throw new Error(`Merge failed: ${result.error}`);
+    // Last safe point to stop: nothing in the library has been touched yet
+    if (await progress.isCancelled()) return await stopCancelled();
+    await progress.update(99, { label: 'Merging into single M4B — swapping files in', cancellable: false, force: true });
 
     // Series tags (mergeChapters writes the rest); best-effort
     let source = tempOutput;
@@ -131,8 +149,11 @@ export async function processMergeLibraryBook(payload: MergeLibraryBookPayload) 
     });
 
     await triggerLibraryScan(logger);
+    await progress.update(100);
+    await progress.finish('Done');
     return { success: true, folder, file: finalName, partsMerged: parts.length, chapterCount: result.chapterCount };
   } finally {
+    clearInterval(cancelPoll);
     for (const file of tempFiles) await fs.unlink(file).catch(() => {});
   }
 }

@@ -31,7 +31,7 @@ export async function processCheckWatchedLists(payload: CheckWatchedListsPayload
   );
 
   const { processWatchedLists } = await import('../services/watched-lists.service');
-  const stats = await processWatchedLists(logger, { userId, seriesAsin, authorAsin });
+  const stats = await processWatchedLists(logger, { userId, seriesAsin, authorAsin, jobId });
 
   logger.info('Watched lists check complete', { stats });
 

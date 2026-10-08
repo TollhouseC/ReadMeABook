@@ -9,6 +9,9 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { authenticatedFetcher, fetchJSON } from '@/lib/utils/api';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
+import { useJobRuns } from '@/lib/hooks/useJobRuns';
+import { RunningJobsList } from '@/components/admin/jobs/RunningJobsList';
+import { JobLogModal } from '@/components/admin/jobs/JobLogModal';
 import {
   cronToHuman,
   SCHEDULE_PRESETS,
@@ -26,6 +29,8 @@ interface ScheduledJob {
   enabled: boolean;
   lastRun: string | null;
   nextRun: string | null;
+  /** Bull job ID of the most recent run (opens its log) */
+  lastRunJobId?: string | null;
 }
 
 function AdminJobsPageContent() {
@@ -48,6 +53,8 @@ function AdminJobsPageContent() {
   const [customSchedule, setCustomSchedule] = useState<CustomSchedule>({ type: 'hours', interval: 1 });
   const [saving, setSaving] = useState(false);
   const toast = useToast();
+  const { jobs: jobRuns, refresh: refreshRuns } = useJobRuns();
+  const [logFor, setLogFor] = useState<{ id: string; title: string } | null>(null);
 
   useEffect(() => {
     fetchJobs();
@@ -110,6 +117,7 @@ function AdminJobsPageContent() {
       });
       toast.success(`Job "${jobName}" triggered successfully`);
       fetchJobs();
+      refreshRuns();
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to trigger job';
       toast.error(errorMsg);
@@ -200,6 +208,14 @@ function AdminJobsPageContent() {
           </div>
         )}
 
+        {/* Long jobs: live progress, cancel, log */}
+        {jobRuns.length > 0 && (
+          <section className="mb-6 bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">Running now</h2>
+            <RunningJobsList jobs={jobRuns} onChanged={() => refreshRuns()} />
+          </section>
+        )}
+
         {/* Jobs — Card layout on mobile, Table on sm+ */}
         <div className="space-y-3 sm:hidden">
           {jobs.map((job) => (
@@ -253,6 +269,14 @@ function AdminJobsPageContent() {
 
               {/* Card actions */}
               <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700/60 flex gap-2">
+                {job.lastRunJobId && (
+                  <button
+                    onClick={() => setLogFor({ id: job.lastRunJobId!, title: `${job.name} — last run` })}
+                    className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    Log
+                  </button>
+                )}
                 <button
                   onClick={() => showEditDialog(job)}
                   className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-medium transition-colors"
@@ -351,6 +375,18 @@ function AdminJobsPageContent() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex justify-end gap-2">
+                      {job.lastRunJobId && (
+                        <button
+                          onClick={() => setLogFor({ id: job.lastRunJobId!, title: `${job.name} — last run` })}
+                          className="inline-flex items-center gap-1 text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
+                          title="View last run log"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          Log
+                        </button>
+                      )}
                       <button
                         onClick={() => showEditDialog(job)}
                         className="inline-flex items-center gap-1 text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
@@ -725,9 +761,14 @@ function AdminJobsPageContent() {
             </div>
           </div>
         )}
+        <LastRunLog logFor={logFor} onClose={() => setLogFor(null)} />
       </div>
     </div>
   );
+}
+
+function LastRunLog({ logFor, onClose }: { logFor: { id: string; title: string } | null; onClose: () => void }) {
+  return logFor ? <JobLogModal jobId={logFor.id} title={logFor.title} onClose={onClose} /> : null;
 }
 
 export default function AdminJobsPage() {

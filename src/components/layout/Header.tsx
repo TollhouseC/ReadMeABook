@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/Button';
 import { VersionBadge } from '@/components/ui/VersionBadge';
 import { ChangePasswordModal } from '@/components/ui/ChangePasswordModal';
 import { useSmartDropdownPosition } from '@/hooks/useSmartDropdownPosition';
+import { RunningJobsIndicator } from '@/components/admin/jobs/RunningJobsIndicator';
 
 export function Header() {
   const { user, logout } = useAuth();
@@ -188,6 +189,9 @@ export function Header() {
 
           {/* Mobile Menu Button & User Menu */}
           <div className="flex items-center gap-2 md:gap-4">
+            {/* Long-running background jobs (admins only; hidden when idle) */}
+            {user?.role === 'admin' && <RunningJobsIndicator />}
+
             {/* Search Button (visible on mobile) */}
             <Link
               href="/search"

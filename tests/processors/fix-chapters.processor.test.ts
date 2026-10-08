@@ -76,6 +76,22 @@ describe('processFixChapters — single book', () => {
   });
 });
 
+describe('processFixChapters — cancel', () => {
+  it('stops before the next book when cancelled and reports it', async () => {
+    const dir = await makeBook('Single', ['Single.m4b']);
+    prismaMock.audiobook.findMany.mockResolvedValue([book('s', 'Single', dir)]);
+    prismaMock.job.findUnique.mockResolvedValue({ cancelRequested: true });
+
+    const result = await run({ mode: 'apply' });
+
+    expect(result).toMatchObject({ cancelled: true, fixed: 0 });
+    expect(fixMock).not.toHaveBeenCalled();
+    expect(prismaMock.job.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'job-1' }, data: { progress: expect.objectContaining({ detail: 'Cancelled' }) },
+    }));
+  });
+});
+
 describe('processFixChapters — library-wide', () => {
   it('report mode checks single-file books only and never applies', async () => {
     const single = await makeBook('Single', ['Single.m4b']);

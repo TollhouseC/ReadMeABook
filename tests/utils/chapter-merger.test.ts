@@ -328,6 +328,34 @@ describe('chapter merger', () => {
     expect(spawnMock).toHaveBeenCalled();
   });
 
+  it('reports ffmpeg progress and stops cleanly when cancelled', async () => {
+    const outputPath = '/tmp/cancel.m4b';
+    const chapters = [
+      { path: '/tmp/a.m4b', filename: 'a.m4b', duration: 60000, chapterTitle: 'A' },
+      { path: '/tmp/b.m4b', filename: 'b.m4b', duration: 60000, chapterTitle: 'B' },
+    ];
+    fsMock.access.mockResolvedValue(undefined);
+    fsMock.stat.mockResolvedValue({ size: 500 * 1024 });
+    fsMock.writeFile.mockResolvedValue(undefined);
+    fsMock.mkdir.mockResolvedValue(undefined);
+    fsMock.unlink.mockResolvedValue(undefined);
+    mockExecImplementation(command => (command.startsWith('ffprobe') ? { stdout: JSON.stringify({ chapters: [] }) } : { stdout: '' }));
+
+    // Progress: 1 of 2 minutes encoded → 50%
+    const onProgress = vi.fn();
+    spawnMock.mockReturnValue(createSpawnProcess(0, 'size=1kB time=00:01:00.00 bitrate=64k speed=10x'));
+    await mergeChapters(chapters, { title: 'Book', author: 'A', outputPath, onProgress });
+    expect(onProgress).toHaveBeenCalledWith(50);
+
+    // Cancel: ffmpeg is killed and the merge fails as cancelled (no validation, no output kept)
+    const proc = createSpawnProcess(0, 'time=00:00:10.00');
+    spawnMock.mockReturnValue(proc);
+    const result = await mergeChapters(chapters, { title: 'Book', author: 'A', outputPath, shouldCancel: () => true });
+    expect(proc.kill).toHaveBeenCalled();
+    expect(result).toMatchObject({ success: false });
+    expect(result.error).toContain('Cancelled by admin');
+  });
+
   it('merges .m4a chapters via re-encode path (not codec copy)', async () => {
     const outputPath = '/tmp/output.m4b';
     const chapters = [

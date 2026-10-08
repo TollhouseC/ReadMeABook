@@ -19,6 +19,7 @@ import { getSiblingAsins } from '@/lib/services/works.service';
 import { planVersionRequests, getOwnedWorkKeys, getRequestedAsins } from '@/lib/services/watched-lists-versions';
 import { RMABLogger } from '@/lib/utils/logger';
 import { isPlaceholderListing, isUpcoming, syncUpcomingReleases } from '@/lib/services/upcoming-releases.service';
+import { createJobProgress, type JobProgressReporter } from '@/lib/utils/job-progress';
 
 const logger = RMABLogger.create('WatchedLists');
 
@@ -45,6 +46,8 @@ export interface WatchedListsSyncStats {
   /** Pre-orders held until their release date (listed as upcoming instead) */
   skippedUpcoming: number;
   errors: number;
+  /** Stopped early by the admin Cancel button */
+  cancelled?: boolean;
 }
 
 export interface WatchedListsSyncOptions {
@@ -54,6 +57,8 @@ export interface WatchedListsSyncOptions {
   seriesAsin?: string;
   /** Process only this specific author (for immediate sync on watch) */
   authorAsin?: string;
+  /** Job row for live progress / cancel (admin UI) */
+  jobId?: string;
 }
 
 /**
@@ -79,11 +84,14 @@ export async function processWatchedLists(
     errors: 0,
   };
 
+  const progress = createJobProgress(options.jobId, 'Watched lists — series', { cancellable: true });
+
   // ---- Watched Series ----
-  await processAllWatchedSeries(log, stats, options);
+  await processAllWatchedSeries(log, stats, options, progress);
 
   // ---- Watched Authors ----
-  await processAllWatchedAuthors(log, stats, options);
+  if (!stats.cancelled) await processAllWatchedAuthors(log, stats, options, progress);
+  await progress.finish(stats.cancelled ? 'Cancelled' : 'Done');
 
   log.info('Watched lists sync complete', {
     seriesChecked: stats.seriesChecked,
@@ -108,7 +116,8 @@ export async function processWatchedLists(
 async function processAllWatchedSeries(
   log: ReturnType<typeof RMABLogger.forJob> | ReturnType<typeof RMABLogger.create>,
   stats: WatchedListsSyncStats,
-  options: WatchedListsSyncOptions
+  options: WatchedListsSyncOptions,
+  progress?: JobProgressReporter
 ): Promise<void> {
   const whereClause: any = {};
   if (options.userId) whereClause.userId = options.userId;
@@ -133,7 +142,15 @@ async function processAllWatchedSeries(
 
   log.info(`Processing ${seriesByAsin.size} unique watched series (${watchedSeries.length} total subscriptions)`);
 
+  await progress?.update(0, { total: seriesByAsin.size, label: 'Watched lists — series', force: true });
+  let seriesIndex = 0;
   for (const [seriesAsin, subscriptions] of seriesByAsin) {
+    if (await progress?.isCancelled()) {
+      stats.cancelled = true;
+      log.warn(`Watched lists cancelled by admin after ${seriesIndex} of ${seriesByAsin.size} series`);
+      return;
+    }
+    await progress?.update(seriesIndex++, { detail: subscriptions[0].seriesTitle });
     try {
       await processSeriesForUsers(seriesAsin, subscriptions, log, stats);
     } catch (error) {
@@ -226,7 +243,8 @@ async function processSeriesForUsers(
 async function processAllWatchedAuthors(
   log: ReturnType<typeof RMABLogger.forJob> | ReturnType<typeof RMABLogger.create>,
   stats: WatchedListsSyncStats,
-  options: WatchedListsSyncOptions
+  options: WatchedListsSyncOptions,
+  progress?: JobProgressReporter
 ): Promise<void> {
   const whereClause: any = {};
   if (options.userId) whereClause.userId = options.userId;
@@ -251,7 +269,15 @@ async function processAllWatchedAuthors(
 
   log.info(`Processing ${authorsByAsin.size} unique watched authors (${watchedAuthors.length} total subscriptions)`);
 
+  await progress?.update(0, { total: authorsByAsin.size, label: 'Watched lists — authors', force: true });
+  let authorIndex = 0;
   for (const [authorAsin, subscriptions] of authorsByAsin) {
+    if (await progress?.isCancelled()) {
+      stats.cancelled = true;
+      log.warn(`Watched lists cancelled by admin after ${authorIndex} of ${authorsByAsin.size} authors`);
+      return;
+    }
+    await progress?.update(authorIndex++, { detail: subscriptions[0].authorName });
     try {
       await processAuthorForUsers(authorAsin, subscriptions, log, stats);
     } catch (error) {

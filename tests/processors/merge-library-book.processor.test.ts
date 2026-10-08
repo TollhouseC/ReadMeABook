@@ -18,6 +18,7 @@ const mergerMock = vi.hoisted(() => ({
   mergeChapters: vi.fn(),
   checkDiskSpace: vi.fn(),
   estimateOutputSize: vi.fn(),
+  MERGE_CANCELLED: 'Cancelled by admin',
 }));
 const getABSItemMock = vi.hoisted(() => vi.fn());
 
@@ -103,6 +104,25 @@ describe('processMergeLibraryBook', () => {
     await expect(run()).rejects.toThrow('validation failed');
     expect((await fs.readdir(bookDir)).sort()).toEqual(['part1.m4b', 'part2.m4b']);
     expect(prismaMock.audiobook.update).not.toHaveBeenCalled();
+  });
+
+  it('stops cleanly when cancelled during the merge, leaving the parts untouched', async () => {
+    for (let i = 1; i <= 2; i++) await fs.writeFile(path.join(bookDir, `part${i}.m4b`), `part${i}`);
+    mergerMock.mergeChapters.mockResolvedValue({ success: false, error: 'FFmpeg merge failed: Cancelled by admin' });
+
+    const result = await run();
+
+    expect(result).toMatchObject({ cancelled: true, success: false });
+    expect((await fs.readdir(bookDir)).sort()).toEqual(['part1.m4b', 'part2.m4b']);
+    expect(prismaMock.audiobook.update).not.toHaveBeenCalled();
+  });
+
+  it('passes progress and cancel hooks to the merge', async () => {
+    for (let i = 1; i <= 2; i++) await fs.writeFile(path.join(bookDir, `p${i}.m4b`), 'x');
+    await run();
+    expect(mergerMock.mergeChapters).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({
+      onProgress: expect.any(Function), shouldCancel: expect.any(Function),
+    }), expect.anything());
   });
 
   it('refuses a book that is already a single file', async () => {

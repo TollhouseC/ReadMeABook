@@ -14,6 +14,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { prisma } from '../db';
 import { RMABLogger } from '../utils/logger';
+import { createJobProgress, CANCELLED_RESULT } from '../utils/job-progress';
 import { getConfigService } from '../services/config.service';
 import type { FixChaptersPayload } from '../services/job-queue.service';
 import { AUDIO_EXTENSIONS } from '../constants/audio-formats';
@@ -37,7 +38,10 @@ async function getMediaDir(): Promise<string> {
   return (await getConfigService().get('media_dir')) || process.env.MEDIA_DIR || '/media/audiobooks';
 }
 
-async function processSingleBook(requestId: string, logger: RMABLogger) {
+async function processSingleBook(requestId: string, logger: RMABLogger, jobId?: string) {
+  // Short (seconds): step labels only, not cancellable
+  const progress = createJobProgress(jobId, 'Fixing chapters — finding the book');
+  await progress.update(0, { force: true });
   const request = await prisma.request.findFirst({
     where: { id: requestId, deletedAt: null },
     include: { audiobook: true },
@@ -52,7 +56,9 @@ async function processSingleBook(requestId: string, logger: RMABLogger) {
   const { file, reason } = await findSingleAudioFile(folder, AUDIO_EXTENSIONS);
   if (!file) throw new Error(`Can't fix chapters for "${book.title}": ${reason}`);
 
+  await progress.update(0, { label: 'Fixing chapters — checking Audnexus', detail: book.title, force: true });
   const result = await fixChaptersIfBetter(file, book.audibleAsin, { apply: true, logger });
+  await progress.finish(result.status);
   await logger.info(`"${book.title}": ${result.status} — ${result.reason} (current ${result.currentCount}, Audnexus ${result.audnexusCount})`);
   if (result.status === 'failed') throw new Error(result.reason);
   if (result.status === 'corrupt') throw new Error(`"${book.title}" is unplayable (${result.reason}) — re-download it`);
@@ -159,17 +165,29 @@ async function collectCandidates(mediaDir: string, logger: RMABLogger): Promise<
   return candidates;
 }
 
-async function processLibrary(mode: 'report' | 'apply', logger: RMABLogger) {
+async function processLibrary(mode: 'report' | 'apply', logger: RMABLogger, jobId?: string) {
   const apply = mode === 'apply';
+  const label = apply ? 'Fixing chapters' : 'Checking chapters';
+  const progress = createJobProgress(jobId, `${label} — finding books`, { cancellable: true });
+  await progress.update(0, { force: true });
   const mediaDir = await getMediaDir();
   const candidates = await collectCandidates(mediaDir, logger);
   await logger.info(`Chapter ${apply ? 'fix' : 'check (report only)'}: ${candidates.length} book(s) to check`);
+  await progress.update(0, { total: candidates.length, label, force: true });
+  let cancelled = false;
 
   const counts: Record<ChapterFixStatus | 'not_single_file', number> = {
     fixed: 0, would_fix: 0, kept: 0, skipped: 0, corrupt: 0, failed: 0, not_single_file: 0,
   };
 
-  for (const candidate of candidates) {
+  for (const [index, candidate] of candidates.entries()) {
+    if (await progress.isCancelled()) {
+      cancelled = true;
+      await logger.warn(`Cancelled by admin after ${index} of ${candidates.length} book(s)`);
+      break;
+    }
+    await progress.update(index, { detail: candidate.title });
+
     const file = candidate.file
       ?? (await findSingleAudioFile(candidate.folder!, AUDIO_EXTENSIONS).catch(() => ({ file: null }))).file;
     if (!file) {
@@ -191,18 +209,20 @@ async function processLibrary(mode: 'report' | 'apply', logger: RMABLogger) {
     if (result.lookedUp) await delay(LOOKUP_DELAY_MS);
   }
 
+  if (!cancelled) await progress.update(candidates.length);
+  await progress.finish(cancelled ? 'Cancelled' : 'Done');
   await logger.info(
-    `Chapter ${apply ? 'fix' : 'check'} complete — ${apply ? `fixed ${counts.fixed}` : `would fix ${counts.would_fix}`}, ` +
+    `Chapter ${apply ? 'fix' : 'check'} ${cancelled ? 'cancelled' : 'complete'} — ${apply ? `fixed ${counts.fixed}` : `would fix ${counts.would_fix}`}, ` +
     `already fine ${counts.kept}, no usable Audnexus match ${counts.skipped}, multi-file ${counts.not_single_file}, ` +
     `corrupt ${counts.corrupt}, failed ${counts.failed}`
   );
   if (counts.fixed > 0) await triggerLibraryScan(logger);
-  return { success: true, mode, checked: candidates.length, ...counts };
+  return { success: true, mode, checked: candidates.length, ...counts, ...(cancelled && CANCELLED_RESULT) };
 }
 
 export async function processFixChapters(payload: FixChaptersPayload) {
   const logger = RMABLogger.forJob(payload.jobId, 'FixChapters');
   return payload.requestId
-    ? processSingleBook(payload.requestId, logger)
-    : processLibrary(payload.mode === 'apply' ? 'apply' : 'report', logger);
+    ? processSingleBook(payload.requestId, logger, payload.jobId)
+    : processLibrary(payload.mode === 'apply' ? 'apply' : 'report', logger, payload.jobId);
 }

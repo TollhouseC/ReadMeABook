@@ -20,6 +20,7 @@ import {
   relinkAudiobooks,
   restoreRemovedFromLibraryRequests,
 } from '../services/library-relink.service';
+import { createJobProgress, CANCELLED_RESULT } from '../utils/job-progress';
 
 /**
  * Process library scan job
@@ -66,7 +67,10 @@ export async function processScanPlex(payload: ScanPlexPayload): Promise<any> {
     logger.info(`Fetching content from library ${targetLibraryId}`);
 
     // 3. Get all audiobooks from library using abstraction layer
+    const progress = createJobProgress(jobId, 'Library scan — reading library', { cancellable: true });
+    await progress.update(0, { force: true });
     const libraryItems = await libraryService.getLibraryItems(targetLibraryId);
+    await progress.update(0, { total: libraryItems.length, label: 'Library scan', force: true });
 
     logger.info(`Found ${libraryItems.length} items in library`);
 
@@ -77,7 +81,16 @@ export async function processScanPlex(payload: ScanPlexPayload): Promise<any> {
 
     // 4. Process each library item - populate plex_library table
     // Note: Table is still called plex_library for backwards compatibility, but now stores items from any backend
-    for (const item of libraryItems) {
+    for (const [index, item] of libraryItems.entries()) {
+      // Cancel only during the item pass: stopping here skips stale cleanup entirely,
+      // so a partial scan can never mark books as removed
+      if (await progress.isCancelled()) {
+        logger.warn(`Library scan cancelled by admin after ${index} of ${libraryItems.length} items — skipping cleanup and matching`);
+        await progress.finish('Cancelled');
+        return { success: true, ...CANCELLED_RESULT, backendMode, totalScanned: index, newCount, updatedCount, skippedCount };
+      }
+      await progress.update(index, { detail: item.title });
+
       if (!item.title || !item.externalId) {
         skippedCount++;
         continue;
@@ -187,6 +200,8 @@ export async function processScanPlex(payload: ScanPlexPayload): Promise<any> {
     }
 
     logger.info(`Scan complete: ${libraryItems.length} items scanned, ${newCount} new, ${updatedCount} updated, ${skippedCount} skipped`);
+    // Past the item pass: cleanup + matching must run to completion
+    await progress.update(libraryItems.length, { label: 'Library scan — cleanup & matching', detail: '', cancellable: false, force: true });
 
     // 4b. For Audiobookshelf: Trigger metadata match for items without ASIN
     // This ensures ASIN gets populated so items can be matched against requests
@@ -661,6 +676,7 @@ export async function processScanPlex(payload: ScanPlexPayload): Promise<any> {
       requestsRestored,
     });
 
+    await progress.finish('Done');
     return {
       success: true,
       message: `Library scan completed successfully (${backendMode})`,

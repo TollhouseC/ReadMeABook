@@ -371,7 +371,7 @@ model Job {
   // Job types: search_indexers, monitor_download, organize_files, scan_plex, plex_recently_added_check, match_plex
   // Ebook job types: search_ebook, start_direct_download, monitor_direct_download
   status       String    @default("pending")
-  // Status values: pending, active, completed, failed, delayed, stuck
+  // Status values: pending, active, completed, failed, delayed, stuck, cancelled
   priority     Int       @default(0)
   attempts     Int       @default(0)
   maxAttempts  Int       @default(3) @map("max_attempts")
@@ -383,6 +383,11 @@ model Job {
   completedAt  DateTime? @map("completed_at")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  // Live progress of long jobs: { current, total, label, detail?, cancellable, updatedAt }
+  progress        Json?
+  // Set by the admin "Cancel" button; long jobs stop cleanly at their next checkpoint
+  cancelRequested Boolean @default(false) @map("cancel_requested")
 
   // Relations
   request Request?   @relation(fields: [requestId], references: [id], onDelete: SetNull)

@@ -64,7 +64,14 @@ export interface MergeOptions {
   asin?: string;
   outputPath: string;
   dirMode?: number;
+  /** Encoding/copy progress 0-100 (from ffmpeg's time= output) */
+  onProgress?: (percent: number) => void;
+  /** Polled while ffmpeg runs; returning true kills ffmpeg and fails the merge as cancelled */
+  shouldCancel?: () => boolean;
 }
+
+/** Error message used when a merge is stopped via `shouldCancel`. */
+export const MERGE_CANCELLED = 'Cancelled by admin';
 
 export interface MergeResult {
   success: boolean;
@@ -455,7 +462,8 @@ async function executeFFmpegWithProgress(
   command: string,
   timeout: number,
   expectedDuration: number, // milliseconds
-  logger?: RMABLogger
+  logger?: RMABLogger,
+  hooks: Pick<MergeOptions, 'onProgress' | 'shouldCancel'> = {}
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     // Parse the command to extract args (remove 'ffmpeg' and handle quotes)
@@ -469,6 +477,7 @@ async function executeFFmpegWithProgress(
     let stderrBuffer = '';
     let lastProgressLog = Date.now();
     let lastProgressPercent = 0;
+    let cancelled = false;
 
     // Set timeout
     const timeoutHandle = setTimeout(() => {
@@ -481,6 +490,13 @@ async function executeFFmpegWithProgress(
       const output = data.toString();
       stderrBuffer += output;
 
+      if (!cancelled && hooks.shouldCancel?.()) {
+        cancelled = true;
+        logger?.warn('Merge cancelled by admin — stopping ffmpeg');
+        ffmpeg.kill();
+        return;
+      }
+
       // Parse FFmpeg progress output
       // Format: frame=... fps=... q=... size=... time=HH:MM:SS.MS bitrate=... speed=...
       const timeMatch = output.match(/time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
@@ -492,6 +508,7 @@ async function executeFFmpegWithProgress(
         const currentTimeMs = (hours * 3600 + minutes * 60 + seconds) * 1000;
 
         const progressPercent = Math.min(100, Math.round((currentTimeMs / expectedDuration) * 100));
+        hooks.onProgress?.(progressPercent);
 
         // Log progress every 10% or every 5 minutes (whichever comes first)
         const timeSinceLastLog = Date.now() - lastProgressLog;
@@ -513,6 +530,11 @@ async function executeFFmpegWithProgress(
 
     ffmpeg.on('close', (code) => {
       clearTimeout(timeoutHandle);
+
+      if (cancelled) {
+        reject(new Error(MERGE_CANCELLED));
+        return;
+      }
 
       if (code === 0) {
         // Check stderr for errors even if exit code is 0
@@ -711,7 +733,10 @@ export async function mergeChapters(
 
     // Execute FFmpeg with progress logging
     try {
-      await executeFFmpegWithProgress(command, timeout, totalDuration, logger);
+      await executeFFmpegWithProgress(command, timeout, totalDuration, logger, {
+        onProgress: options.onProgress,
+        shouldCancel: options.shouldCancel,
+      });
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       await logger?.error(`FFmpeg merge failed: ${errorMsg}`);

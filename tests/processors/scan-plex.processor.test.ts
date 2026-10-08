@@ -334,6 +334,23 @@ describe('processScanPlex', () => {
     expect(prismaMock.request.update).not.toHaveBeenCalled();
   });
 
+  it('stops during the item pass when cancelled and never runs stale cleanup', async () => {
+    configMock.getBackendMode.mockResolvedValue('plex');
+    configMock.getPlexConfig.mockResolvedValue({ serverUrl: 'http://plex', authToken: 'token', libraryId: 'lib-1', machineIdentifier: 'machine' });
+    libraryServiceMock.getCoverCachingParams.mockResolvedValue({ backendBaseUrl: 'http://plex', authToken: 'token', backendMode: 'plex' });
+    libraryServiceMock.getLibraryItems.mockResolvedValue([
+      { id: 'r1', externalId: 'g1', title: 'One', author: 'A', addedAt: new Date(), updatedAt: new Date() },
+    ]);
+    prismaMock.job.findUnique.mockResolvedValue({ cancelRequested: true });
+
+    const { processScanPlex } = await import('@/lib/processors/scan-plex.processor');
+    const result = await processScanPlex({ jobId: 'job-cancel' });
+
+    expect(result).toMatchObject({ cancelled: true, totalScanned: 0 });
+    expect(prismaMock.plexLibrary.findMany).not.toHaveBeenCalled(); // no stale cleanup
+    expect(prismaMock.request.update).not.toHaveBeenCalled();
+  });
+
   it('cancels requests stuck at downloaded whose book is no longer in the library', async () => {
     configMock.getBackendMode.mockResolvedValue('plex');
     configMock.getPlexConfig.mockResolvedValue({

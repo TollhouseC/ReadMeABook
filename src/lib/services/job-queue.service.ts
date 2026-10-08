@@ -13,6 +13,13 @@ import type { NotificationEvent } from '@/lib/constants/notification-events';
 
 const logger = RMABLogger.create('JobQueue');
 
+/** Jobs that report live progress (admin header indicator / Jobs page). */
+const LONG_JOB_TYPES: string[] = [
+  'fix_chapters', 'fix_library_layout', 'merge_library_book', 'plex_library_scan', 'scan_plex', 'check_watched_lists',
+];
+
+const queuedProgress = () => ({ current: 0, total: null, label: 'Queued', cancellable: true, updatedAt: new Date().toISOString() });
+
 export type JobType =
   | 'search_indexers'
   | 'download_torrent'
@@ -263,7 +270,8 @@ export class JobQueueService {
   private setupEventHandlers(): void {
     this.queue.on('completed', async (job: BullJob, result: any) => {
       logger.info(`Job ${job.id} completed`, { result });
-      await this.updateJobInDatabase(job.id as string, 'completed', result);
+      // Long jobs stopped by the admin Cancel button return { cancelled: true }
+      await this.updateJobInDatabase(job.id as string, result?.cancelled ? 'cancelled' : 'completed', result);
     });
 
     this.queue.on('failed', async (job: BullJob, error: Error) => {
@@ -533,6 +541,7 @@ export class JobQueueService {
         priority: 0,
         payload,
         maxAttempts: 3,
+        ...(LONG_JOB_TYPES.includes(jobType) && { progress: queuedProgress() }),
       },
     });
 
@@ -569,7 +578,7 @@ export class JobQueueService {
         updateData.startedAt = new Date();
       }
 
-      if (status === 'completed' || status === 'failed') {
+      if (status === 'completed' || status === 'failed' || status === 'cancelled') {
         updateData.completedAt = new Date();
       }
 
@@ -612,6 +621,8 @@ export class JobQueueService {
         priority: options?.priority || 0,
         payload,
         maxAttempts: options?.attempts || 3,
+        // Long jobs show in the admin progress UI from the moment they're queued
+        ...(LONG_JOB_TYPES.includes(type) && { progress: queuedProgress() }),
       },
     });
 
