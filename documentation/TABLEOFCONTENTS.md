@@ -76,6 +76,7 @@
 - **Chapter merging (auto-merge to M4B)** → [features/chapter-merging.md](features/chapter-merging.md)
 - **Chapter sources (Audnexus/embedded), merge already-imported split books** → [features/chapter-merging.md](features/chapter-merging.md)
 - **Library layout guard: book never nested inside another book (import + library job)** → [phase3/file-organization.md](phase3/file-organization.md#library-layout-guard)
+- **Library Organize job: one folder per author, series kept together, author spelling matching** → [phase3/file-organization.md](phase3/file-organization.md#library-organize-one-folder-per-author-series-together)
 - **Shared torrent download folders, multi-book import guard** → [phase3/file-organization.md](phase3/file-organization.md#shared-download-folders--multi-book-guard)
 - **Scan safety: grace period, relink by ASIN, restore wrongly cancelled requests** → [backend/services/jobs.md](backend/services/jobs.md)
 - **Job progress bars, clean cancel, live job log in the web UI** → [backend/services/jobs.md](backend/services/jobs.md#live-progress--cancel-long-jobs)

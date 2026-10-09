@@ -15,7 +15,7 @@ const logger = RMABLogger.create('JobQueue');
 
 /** Jobs that report live progress (admin header indicator / Jobs page). */
 const LONG_JOB_TYPES: string[] = [
-  'fix_chapters', 'fix_library_layout', 'merge_library_book', 'merge_library', 'plex_library_scan', 'scan_plex', 'check_watched_lists',
+  'fix_chapters', 'fix_library_layout', 'merge_library_book', 'merge_library', 'organize_library', 'plex_library_scan', 'scan_plex', 'check_watched_lists',
 ];
 
 const queuedProgress = () => ({ current: 0, total: null, label: 'Queued', cancellable: true, updatedAt: new Date().toISOString() });
@@ -41,6 +41,7 @@ export type JobType =
   | 'fix_chapters'
   | 'fix_library_layout'
   | 'merge_library'
+  | 'organize_library'
   | 'send_notification'
   // Ebook-specific job types
   | 'search_ebook'
@@ -142,6 +143,12 @@ export interface MergeLibraryPayload extends JobPayload {
 
 export interface FixLibraryLayoutPayload extends JobPayload {
   /** 'report' lists nested book folders, 'apply' fixes them */
+  mode?: 'report' | 'apply';
+  scheduledJobId?: string;
+}
+
+export interface OrganizeLibraryPayload extends JobPayload {
+  /** 'report' lists folder moves, 'apply' makes them */
   mode?: 'report' | 'apply';
   scheduledJobId?: string;
 }
@@ -488,6 +495,12 @@ export class JobQueueService {
       const { processFixLibraryLayout } = await import('../processors/fix-library-layout.processor');
       const payloadWithJobId = await this.ensureJobRecord(job, 'fix_library_layout');
       return await processFixLibraryLayout(payloadWithJobId);
+    });
+
+    this.queue.process('organize_library', 1, async (job: BullJob<OrganizeLibraryPayload>) => {
+      const { processOrganizeLibrary } = await import('../processors/organize-library.processor');
+      const payloadWithJobId = await this.ensureJobRecord(job, 'organize_library');
+      return await processOrganizeLibrary(payloadWithJobId);
     });
 
     // Send notification processor
@@ -914,6 +927,13 @@ export class JobQueueService {
    */
   async addFixLibraryLayoutJob(options: { mode?: 'report' | 'apply'; scheduledJobId?: string }): Promise<string> {
     return await this.addJob('fix_library_layout', { ...options } as FixLibraryLayoutPayload, { priority: 9 });
+  }
+
+  /**
+   * Find (report) or make (apply) folder moves: one folder per author, series kept together
+   */
+  async addOrganizeLibraryJob(options: { mode?: 'report' | 'apply'; scheduledJobId?: string }): Promise<string> {
+    return await this.addJob('organize_library', { ...options } as OrganizeLibraryPayload, { priority: 9 });
   }
 
   /**

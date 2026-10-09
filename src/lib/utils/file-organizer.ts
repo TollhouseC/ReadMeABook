@@ -25,6 +25,7 @@ import { applyVersionLabel } from './book-versions';
 import { resolveCollisionFreeTarget } from './library-layout';
 import { checkRuntime } from '../services/library-merge.service';
 import { checkMultiBookImport, describeMultiBook } from './multi-book-guard';
+import { findLibraryHome } from './series-home';
 import { AUDIO_EXTENSIONS } from '../constants/audio-formats';
 
 export interface AudiobookMetadata {
@@ -349,16 +350,25 @@ export class FileOrganizer {
         // Don't fail the whole operation if metadata tagging fails - continue with copying files
       }
 
+      // Join the author's / series' existing folder (author spelled differently, or a series
+      // kept under one of several co-authors) instead of starting a parallel folder
+      const home = template.trim().startsWith('{author}')
+        ? await findLibraryHome(this.mediaDir, audiobook.author, audiobook.series)
+        : null;
+      if (home) {
+        await logger?.info(`Using existing library folder "${home.author}${home.series ? `/${home.series}` : ''}" for ${audiobook.author}${audiobook.series ? ` — ${audiobook.series}` : ''}`);
+      }
+
       // Build target directory
       const templatePath = this.buildTargetPath(
         this.mediaDir,
         template,
-        audiobook.author,
+        home?.author ?? audiobook.author,
         audiobook.title,
         audiobook.narrator,
         audiobook.asin,
         audiobook.year,
-        audiobook.series,
+        home?.series ?? audiobook.series,
         audiobook.seriesPart
       );
 

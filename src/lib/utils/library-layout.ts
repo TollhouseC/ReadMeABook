@@ -21,7 +21,7 @@ import { AUDIO_EXTENSIONS } from '../constants/audio-formats';
 import type { RMABLogger } from './logger';
 
 /** Subfolders that are discs/parts of the same book, not separate books. */
-const DISC_FOLDER_RE = /^(?:cd|disc|disk|part|pt)\s*[-_.]?\s*\d+$/i;
+export const DISC_FOLDER_RE = /^(?:cd|disc|disk|part|pt)\s*[-_.]?\s*\d+$/i;
 
 const isAudio = (name: string) => (AUDIO_EXTENSIONS as readonly string[]).includes(path.extname(name).toLowerCase());
 

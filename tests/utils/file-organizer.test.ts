@@ -111,6 +111,9 @@ const multiBookMock = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/utils/multi-book-guard', () => multiBookMock);
 
+// Existing series/author folder lookup: none by default (covered in series-home.test.ts)
+vi.mock('@/lib/utils/series-home', () => ({ findLibraryHome: vi.fn(async () => null) }));
+
 describe('file organizer', () => {
   const originalEnv = { ...process.env };
 

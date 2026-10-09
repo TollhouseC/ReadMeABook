@@ -81,7 +81,10 @@ describe('SchedulerService', () => {
     const service = new SchedulerService();
     await service.start();
 
-    expect(prismaMock.scheduledJob.create).toHaveBeenCalledTimes(18);
+    expect(prismaMock.scheduledJob.create).toHaveBeenCalledTimes(20);
+    expect(prismaMock.scheduledJob.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ type: 'library_organize_apply', enabled: false }),
+    });
     expect(prismaMock.scheduledJob.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ type: 'library_merge_apply', enabled: false }),
     });
