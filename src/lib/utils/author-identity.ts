@@ -37,7 +37,8 @@ const keyOf = (words: string[]) => [...new Set(words)].sort().join(' ');
  * is one person; otherwise commas, "&", "and" and ";" separate people.
  */
 export function parsePersons(author: string): Person[] {
-  const text = (author || '').trim();
+  // Audible roles: "George R. R. Martin - editor", "Pedro Jorge Romero - translator"
+  const text = (author || '').replace(/\s+[-–]\s+[^,;&]*/g, '').trim();
   if (!text) return [];
   const parts = text.split(PERSON_SPLIT).map(p => p.trim()).filter(Boolean);
   const commaParts = text.split(',').map(p => p.trim()).filter(Boolean);

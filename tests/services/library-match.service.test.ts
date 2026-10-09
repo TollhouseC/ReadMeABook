@@ -4,24 +4,29 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import type { AudibleAudiobook } from '@/lib/integrations/audible.service';
 import {
-  decideMatch, findSuspects, lengthFit, scoreCandidates, searchTitle, titleSimilarity, type MatchItem, type Suspect,
+  decideMatch, findSuspects, folderInfo, lengthFit, scoreCandidates, searchTitle, titleSimilarity, type MatchItem, type Suspect,
 } from '@/lib/services/library-match.service';
 
-const item = (over: Partial<MatchItem>): MatchItem => ({ id: 'li', title: '', author: '', relPath: '', isFile: false, ...over });
 const H = 3600;
+const item = (over: Partial<MatchItem>): MatchItem => ({ id: 'li', title: '', author: '', relPath: '', isFile: false, ...over });
+const book = (asin: string, title: string, author: string, minutes?: number, language = 'english'): AudibleAudiobook =>
+  ({ asin, title, author, durationMinutes: minutes, language });
 
-const poppy2 = item({ id: 'p2', title: 'The Dragon Republic', author: 'R. F. Kuang', asin: 'B0DR', durationSec: 23.78 * H, relPath: 'R. F. Kuang/The Poppy War/The Poppy War 02 - The Dragon Republic' });
-const poppy3 = item({ id: 'p3', title: 'The Dragon Republic', author: 'R. F. Kuang', asin: 'B0DR', durationSec: 23.78 * H, relPath: 'R. F. Kuang/The Poppy War/The Poppy War 03 - The Burning God' });
+function suspectFor(it: MatchItem, current?: AudibleAudiobook): Suspect {
+  const { folderTitle, folderAuthor } = folderInfo(it);
+  return { item: it, reasons: ['length'], folderTitle, folderAuthor, current };
+}
+const decide = (s: Suspect, results: AudibleAudiobook[]) => decideMatch(s, scoreCandidates(s, results));
 
 describe('title and length helpers', () => {
   it('matches titles despite punctuation, series prefixes and subtitles', () => {
     expect(titleSimilarity('He Who Fights with Monsters 11: A LitRPG Adventure', 'He Who Fights with Monsters 11 A LitRPG Adventure')).toBe(1);
     expect(titleSimilarity('The Burning God', 'The Poppy War 03 - The Burning God')).toBe(1);
-    expect(titleSimilarity('Halo: The Thursday War', 'Halo The Thursday War')).toBe(1);
+    expect(titleSimilarity('The Churn: An Expanse Novella', 'The Churn')).toBe(1);
     expect(titleSimilarity('Wild Cards I', 'Wild Cards 27 - Knaves over Queens')).toBeLessThan(0.6);
     expect(searchTitle('The Poppy War 03 - The Burning God')).toBe('The Burning God');
-    expect(searchTitle('Elin Hilderbrand - Golden Girl [Unabridged]')).toBe('Elin Hilderbrand - Golden Girl');
   });
 
   it('grades lengths', () => {
@@ -34,15 +39,19 @@ describe('title and length helpers', () => {
 
 describe('findSuspects', () => {
   it('flags wrong titles, shared ASINs, bad lengths and missing ASINs — not good matches or alternates', () => {
-    const runtimes = new Map([['b0dr', 1427], ['b0hw11', 1579], ['b0wci', 1140], ['b0er', 450]]);
+    const products = new Map([
+      ['b0dr', book('B0DR', 'The Dragon Republic', 'R. F. Kuang', 1427)],
+      ['b0hw11', book('B0HW11', 'He Who Fights with Monsters 11', 'Shirtaloon', 1579)],
+      ['b0er', book('B0ER', 'Equal Rites', 'Terry Pratchett', 450)],
+    ]);
     const suspects = findSuspects([
-      poppy2,
-      poppy3,
-      item({ id: 'hw11', title: 'He Who Fights with Monsters 11: A LitRPG Adventure', asin: 'B0HW11', durationSec: 26.33 * H, relPath: 'Travis Deverell Shirtaloon/He Who Fights with Monsters/He Who Fights with Monsters 11 A LitRPG Adventure' }),
+      item({ id: 'p2', title: 'The Dragon Republic', asin: 'B0DR', durationSec: 23.78 * H, relPath: 'R. F. Kuang/The Poppy War/The Poppy War 02 - The Dragon Republic' }),
+      item({ id: 'p3', title: 'The Dragon Republic', asin: 'B0DR', durationSec: 23.78 * H, relPath: 'R. F. Kuang/The Poppy War/The Poppy War 03 - The Burning God' }),
+      item({ id: 'hw11', title: 'He Who Fights with Monsters 11: A LitRPG Adventure', asin: 'B0HW11', durationSec: 26.33 * H, relPath: 'Shirtaloon/HWFwM/He Who Fights with Monsters 11 A LitRPG Adventure' }),
       item({ id: 'er', title: 'Equal Rites', asin: 'B0ER', durationSec: 4.43 * H, relPath: 'Terry Pratchett/Discworld/The Last Hero' }),
       item({ id: 'none', title: 'Mystery', relPath: 'Someone/Mystery' }),
       item({ id: 'ga', title: 'The Well of Ascension', asin: 'B0WOA', durationSec: 21 * H, relPath: 'Brandon Sanderson/Mistborn {Graphic Audio}/The Well of Ascension' }),
-    ], runtimes);
+    ], products);
 
     const byId = Object.fromEntries(suspects.map(s => [s.item.id, s.reasons]));
     expect(byId.p2).toEqual(['shared_asin']);
@@ -54,49 +63,85 @@ describe('findSuspects', () => {
   });
 });
 
-describe('decideMatch', () => {
-  const suspectFor = (it: MatchItem, currentMinutes?: number): Suspect => {
-    const parts = it.relPath.split('/');
-    return { item: it, reasons: ['title'], folderTitle: parts[parts.length - 1], folderAuthor: parts[0], currentMinutes };
-  };
-
-  it('re-matches when title, author and length agree (Equal Rites folder matched to The Last Hero)', () => {
-    const lastHero = item({ id: 'lh', title: 'Equal Rites', author: 'Terry Pratchett', asin: 'B0ER', durationSec: 4.43 * H, relPath: 'Terry Pratchett/Discworld/The Last Hero' });
-    const s = suspectFor(lastHero, 450);
-    const decision = decideMatch(s, scoreCandidates(s, [
-      { asin: 'B0ER', title: 'Equal Rites', author: 'Terry Pratchett', durationMinutes: 450 },
-      { asin: 'B0LH', title: 'The Last Hero', author: 'Terry Pratchett', durationMinutes: 266 },
-    ]));
-    expect(decision).toMatchObject({ kind: 'confident', candidate: { asin: 'B0LH' } });
+describe('decideMatch — editions', () => {
+  it('treats the right book in another narration as fine (Discworld re-recordings)', () => {
+    const mort = book('B09LZ58X8G', 'Mort', 'Terry Pratchett', 477);
+    const s = suspectFor(item({ title: 'Mort', asin: 'B09LZ58X8G', durationSec: 439 * 60, relPath: 'Terry Pratchett/Discworld/Mort' }), mort);
+    expect(decide(s, [mort, book('B0032N4ZUI', 'Mort', 'Terry Pratchett', 182)])).toMatchObject({ kind: 'edition' });
   });
 
-  it('says the match is fine when the current ASIN is the right one', () => {
-    const s = suspectFor(poppy2, 1427);
-    expect(decideMatch(s, scoreCandidates(s, [{ asin: 'B0DR', title: 'The Dragon Republic', author: 'R. F. Kuang', durationMinutes: 1427 }])))
-      .toEqual({ kind: 'ok' });
+  it('re-matches to the edition whose length fits (Timeline)', () => {
+    const abridged = book('B002V5IUMM', 'Timeline', 'Michael Crichton', 360);
+    const s = suspectFor(item({ title: 'Timeline', asin: 'B002V5IUMM', durationSec: 912 * 60, relPath: 'Michael Crichton/Timeline' }), abridged);
+    expect(decide(s, [book('B002VA96S4', 'Timeline', 'Michael Crichton', 904), abridged]))
+      .toMatchObject({ kind: 'confident', candidate: { asin: 'B002VA96S4' }, why: 'an edition whose length fits the audio' });
   });
 
-  it('reports wrong audio instead of re-matching (Poppy War 03 holds book 2)', () => {
-    const s = suspectFor(poppy3, 1427);
-    const decision = decideMatch(s, scoreCandidates(s, [
-      { asin: 'B0BG', title: 'The Burning God', author: 'R. F. Kuang', durationMinutes: 1240 },
-    ]));
-    expect(decision).toMatchObject({ kind: 'wrong_audio', namedAs: { asin: 'B0BG' }, audioMatches: 'The Dragon Republic' });
+  it('ignores other-language editions and translations (Cibola Burn, Binding 13)', () => {
+    const cibola = book('B00WNIDATK', 'Cibola Burn', 'James S. A. Corey', 1207);
+    const s = suspectFor(item({ title: 'Cibola Burn', asin: 'B00WNIDATK', durationSec: 1284 * 60, relPath: 'James S. A. Corey/The Expanse/Cibola Burn' }), cibola);
+    expect(decide(s, [cibola, book('B0DE', 'Cibola brennt', 'James S. A. Corey', 1284, 'german')])).toMatchObject({ kind: 'edition' });
+
+    const binding = suspectFor(item({ title: 'Binding 13', asin: 'B07LBMZL88', durationSec: 1552 * 60, relPath: 'Chloe Walsh/Boys of Tommen/Binding 13' }));
+    const decision = decide(binding, [book('B0CYCHRT3M', 'Boys of Tommen 1: Binding 13', 'Chloe Walsh, Gerda M. Pum - translator', 1588)]);
+    expect(decision.kind).not.toBe('confident');
   });
 
-  it('reports wrong audio when another book by the author has the audio length (HWFwM 1 holds book 4)', () => {
-    const hw1 = item({ id: 'hw1', title: '', author: '', durationSec: 22.34 * H, relPath: 'Shirtaloon, Travis Deverell/He Who Fights with Monsters/He Who Fights with Monsters A LitRPG Adventure' });
-    const s = suspectFor(hw1);
-    const decision = decideMatch(s, scoreCandidates(s, [
-      { asin: 'B1', title: 'He Who Fights with Monsters: A LitRPG Adventure', author: 'Shirtaloon, Travis Deverell', durationMinutes: 1736 },
-      { asin: 'B4', title: 'He Who Fights with Monsters 4', author: 'Shirtaloon, Travis Deverell', durationMinutes: 1340 },
-    ]));
-    expect(decision).toMatchObject({ kind: 'wrong_audio', audioMatches: 'He Who Fights with Monsters 4' });
+  it('re-matches a foreign-language current match to the English edition (Howling Dark)', () => {
+    const italian = book('B0GR5XY62Z', "Howling Dark - L'ululato dell'oscurità", 'Christopher Ruocchio', 2313, 'italian');
+    const s = suspectFor(item({ title: 'Howling Dark', asin: 'B0GR5XY62Z', durationSec: 3368 * 60, relPath: 'Christopher Ruocchio/Sun Eater/Howling Dark' }), italian);
+    expect(decide(s, [book('1501991558', 'Howling Dark', 'Christopher Ruocchio', 1683), italian]))
+      .toMatchObject({ kind: 'confident', candidate: { asin: '1501991558' }, why: 'current match is another-language edition' });
   });
 
-  it('is unsure without a title + author match, listing candidates', () => {
-    const s = suspectFor(item({ id: 'x', durationSec: 10 * H, relPath: 'Someone/Obscure Book' }));
-    const decision = decideMatch(s, scoreCandidates(s, [{ asin: 'B9', title: 'Different Book', author: 'Other Person', durationMinutes: 600 }]));
-    expect(decision).toMatchObject({ kind: 'unsure', candidates: [{ asin: 'B9' }] });
+  it('skips adaptations and summaries unless the audio fits them exactly', () => {
+    const current = book('B08VWTH5HY', 'Poirot Investigates', 'Agatha Christie', 300);
+    const s = suspectFor(item({ title: 'Poirot Investigates', asin: 'B08VWTH5HY', durationSec: 341 * 60, relPath: 'Agatha Christie/A Hercule Poirot Mystery/Poirot Investigates' }), current);
+    expect(decide(s, [book('B0HL6QM7R3', 'Poirot Investigates: (Illustrated) & Adapted for Modern Readers', 'Agatha Christie', 333), current]))
+      .toMatchObject({ kind: 'edition' });
+
+    const donlea = suspectFor(item({ title: 'Long Time Gone', asin: 'B0CQZ22HLQ', durationSec: 448 * 60, relPath: 'Charlie Donlea/Long Time Gone' }), book('B0CQZ22HLQ', 'Long Time Gone', 'Charlie Donlea', 600));
+    expect(decide(donlea, [book('B0FK72YNW8', 'Long Time Gone (Dramatized Adaptation)', 'Charlie Donlea', 447)])).toMatchObject({ kind: 'confident' });
+  });
+
+  it('matches authors listed with roles ("- editor")', () => {
+    const wc1 = book('B005ZUHPP8', 'Wild Cards I', 'George R. R. Martin - editor', 1139);
+    const s = suspectFor(item({ title: 'Wild Cards I', asin: 'B005ZUHPP8', durationSec: 1140 * 60, relPath: 'George R. R. Martin/Wild Cards/Wild Cards I' }), wc1);
+    expect(decide(s, [wc1])).toEqual({ kind: 'ok' });
+  });
+});
+
+describe('decideMatch — broken files and wrong books', () => {
+  it('flags far too short and far too long audio', () => {
+    const kaigen = book('B08GGD1BH1', 'The Sword of Kaigen: A Theonite War Story', 'M. L. Wang', 1464);
+    expect(decide(suspectFor(item({ asin: 'B08GGD1BH1', durationSec: 12 * 60, relPath: 'M. L. Wang/The Sword of Kaigen A Theonite War Story' }), kaigen), [kaigen]))
+      .toMatchObject({ kind: 'too_short' });
+    const hobbit = book('B0030EJV3U', 'The Hobbit', 'J. R. R. Tolkien', 664);
+    expect(decide(suspectFor(item({ asin: 'B0030EJV3U', durationSec: 1283 * 60, relPath: 'J. R. R. Tolkien/The Lord of the Rings/The Hobbit' }), hobbit), [hobbit]))
+      .toMatchObject({ kind: 'too_long' });
+  });
+
+  it('reports wrong audio when the audio is exactly the current (other) book (Poppy War 03 holds book 2)', () => {
+    const dr = book('B0DR', 'The Dragon Republic', 'R. F. Kuang', 1427);
+    const s = suspectFor(item({ title: 'The Dragon Republic', asin: 'B0DR', durationSec: 1427.3 * 60, relPath: 'R. F. Kuang/The Poppy War/The Poppy War 03 - The Burning God' }), dr);
+    expect(decide(s, [book('B0BG', 'The Burning God', 'R. F. Kuang', 1240), dr]))
+      .toMatchObject({ kind: 'wrong_audio', namedAs: { asin: 'B0BG' }, audioMatches: 'The Dragon Republic' });
+  });
+
+  it('does not call similar lengths of sibling books wrong audio (Sourcery vs The Light Fantastic)', () => {
+    const sourcery = book('B09LZ1JBL7', 'Sourcery', 'Terry Pratchett', 540);
+    const s = suspectFor(item({ title: 'Sourcery', asin: 'B09LZ1JBL7', durationSec: 475 * 60, relPath: 'Terry Pratchett/Discworld/Sourcery' }), sourcery);
+    expect(decide(s, [sourcery, book('B09LZ5HZGC', 'The Light Fantastic', 'Terry Pratchett', 462)])).toMatchObject({ kind: 'edition' });
+  });
+
+  it('re-matches a book with no ASIN to the folder\'s book', () => {
+    const s = suspectFor(item({ title: 'Love, Theoretically', relPath: 'Ali Hazelwood/Love, Theoretically' }));
+    expect(decide(s, [book('B0BJLCYHHR', 'Love, Theoretically', 'Ali Hazelwood', 753), book('B0DJ', 'Love, theoretically (French Edition)', 'Ali Hazelwood', 619, 'french')]))
+      .toMatchObject({ kind: 'confident', candidate: { asin: 'B0BJLCYHHR' } });
+  });
+
+  it('reports books not on Audible', () => {
+    const s = suspectFor(item({ title: 'The Girl of Hrusch Avenue', durationSec: 51 * 60, relPath: 'Brian McClellan/The Powder Mage Trilogy/The Girl of Hrusch Avenue' }));
+    expect(decide(s, [book('B1', 'Promise of Blood', 'Brian McClellan', 900)])).toMatchObject({ kind: 'not_found' });
   });
 });

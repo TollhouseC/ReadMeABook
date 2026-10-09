@@ -14,11 +14,16 @@ Old imports (e.g. from Plex) get fuzzy-matched by Audiobookshelf, sometimes to t
   - `title`: ABS title vs folder name similarity < 0.6 (folder variants: full, part after last " - "; brackets/"Unabridged"/leading article ignored)
   - `shared_asin`: same ASIN on folders with different titles
   - Skipped: alternate versions (Graphic Audio, dramatized, full cast, first drafts, non-canon, abridged, `{…}`).
-- **Candidates** (`scoreCandidates`): search `"<folder title> <first author of author folder>"` (series prefix "Series 03 - " dropped), fallback title only; top 10. Score = title×2 + author (shares a person, `author-identity.ts`) + length (ok 1.5 / close 0.5). Length ok ≤ max(5 min, 3%), off > max(10 min, 5%).
-- **Decision** (`decideMatch`):
-  - Candidate with title ≥ 0.8 + author + length ok → `confident` (or `ok` if it's the current ASIN). Apply → `triggerABSItemMatch(itemId, asin)` (`POST /items/{id}/match`, `overrideDefaults`) — rewrites that item's metadata (and `metadata.json` with "Store metadata with item").
-  - Title + author match but length doesn't, and another book by the author (or the current match, whose title doesn't fit the folder) has the audio's length → `wrong_audio` ("re-download"; e.g. Poppy War 03 holding book 2, HWFwM 1 holding book 4). Never re-matched.
-  - Otherwise → `unsure` with top 3 candidates (title, author, ASIN, length) — fix with Match in ABS.
-- **Result:** `{ checked, suspects, ok, would_rematch, rematched, unsure, wrong_audio, failed }`.
+- **Candidates** (`scoreCandidates`): search `"<folder title> <first author of author folder>"` (series prefix "Series 03 - " dropped); second title-only search when the first gives nothing usable; top 10 each, plus the current match. Kept only when in the release language (`release_language`; Audible `language`, no translator role, else title markers) and a real edition (summaries/guides/adapted/illustrated/abridged/dramatized/full cast/radio drama dropped unless the folder says so or the audio fits within max(2 min, 0.5%)). Score = title×2 + author (shares a person; roles like "- editor" ignored) + length (ok 1.5 / close 0.5). Title compare also uses the candidate's main title (before ":" / "("). Length ok ≤ max(5 min, 3%), off > max(10 min, 5%).
+- **Decision** (`decideMatch`) — editions of the folder's book = candidates with title ≥ 0.8 + author, closest length first:
+  - An edition fits the length → `ok` if it's the current match, else `confident` (re-match).
+  - Folder's book known but the audio is exactly another book's length (sibling by the author, or the current match whose title doesn't fit the folder) → `wrong_audio` (e.g. Poppy War 03 holding book 2).
+  - Current match is another-language edition → `confident` (English edition, closest length).
+  - Right book, audio/runtime ratio 0.7–1.43 → `edition` (fine: another narration/recording; summarised in one line, not listed). Current match is a different book → `confident` to the folder's book.
+  - Ratio ≤ 0.55 → `too_short` (incomplete/abridged file — re-download); ≥ 1.8 → `too_long` (duplicate copies/other books — Library Merge).
+  - Otherwise → `unsure` (editions listed); no title+author match at all → `not_found` (e.g. novellas only sold in collections).
+  - No audio length (no ASIN) → `confident` to the folder's book.
+- Apply re-matches `confident` only: `triggerABSItemMatch(itemId, asin)` (`POST /items/{id}/match`, `overrideDefaults`) — rewrites that item's metadata (and `metadata.json` with "Store metadata with item").
+- **Result:** `{ checked, suspects, ok, other_edition, would_rematch, rematched, wrong_audio, too_short, too_long, unsure, not_found, failed }`.
 
 ## Related: [phase3/file-organization.md](../phase3/file-organization.md) (Library Organize), [features/chapter-merging.md](chapter-merging.md) (Library Merge), [backend/services/jobs.md](../backend/services/jobs.md)
