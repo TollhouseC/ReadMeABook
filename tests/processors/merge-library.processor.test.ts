@@ -132,6 +132,59 @@ describe('processMergeLibrary', () => {
     expect(await fs.readdir(good)).toEqual(['HWFwM 10.m4b']);
   });
 
+  it('never removes a different book that Audiobookshelf matched to the same ASIN', async () => {
+    const book2 = await book('R. F. Kuang/The Poppy War/The Poppy War 02 - The Dragon Republic', { 'The Dragon Republic.m4b': 10 });
+    const book3 = await book('R. F. Kuang/The Poppy War/The Poppy War 03 - The Burning God', { 'The Burning God.m4b': 10 });
+    const wc1 = await book('GRRM/Wild Cards/Wild Cards I', { 'Wild Cards I.m4b': 10 });
+    const wc27 = await book('GRRM/Wild Cards/Wild Cards 27 - Knaves over Queens', { 'Knaves over Queens.m4b': 10 });
+    mocks.collectCandidates.mockResolvedValue([
+      { title: 'The Poppy War 02 - The Dragon Republic', asin: 'B0POPPY', folder: book2 },
+      { title: 'The Poppy War 03 - The Burning God', asin: 'B0POPPY', folder: book3 },
+      { title: 'Wild Cards I', asin: 'B0WC', folder: wc1 },
+      // ABS title overwritten by the bad match — the folder name still differs
+      { title: 'Wild Cards I', asin: 'B0WC', folder: wc27 },
+    ]);
+
+    const result = await run('apply');
+
+    expect(result).toMatchObject({ folders_removed: 0, different_length_alerts: 2 });
+    expect(await fs.readdir(book3)).toEqual(['The Burning God.m4b']);
+    expect(await fs.readdir(wc27)).toEqual(['Knaves over Queens.m4b']);
+  });
+
+  it('keeps Graphic Audio / dramatized editions without alerting', async () => {
+    const standard = await book('Brandon Sanderson/The Mistborn Saga/The Well of Ascension', { 'The Well of Ascension.m4b': 10 });
+    const ga = await book('Brandon Sanderson/Mistborn {Graphic Audio}/The Well of Ascension', { 'The Well of Ascension.m4b': 7.5 });
+    mocks.collectCandidates.mockResolvedValue([
+      { title: 'The Well of Ascension', asin: 'B0WOA', folder: standard },
+      { title: 'The Well of Ascension', asin: 'B0WOA', folder: ga },
+    ]);
+
+    const result = await run('apply');
+
+    expect(result).toMatchObject({ folders_removed: 0, different_length_alerts: 0 });
+    expect(await fs.readdir(ga)).toEqual(['The Well of Ascension.m4b']);
+  });
+
+  it('removes exact copies of sibling books misfiled by an old series-pack import, then renames', async () => {
+    // Sun Eater: each book folder also got the other books of the pack
+    const empire = await book('Ruocchio/Sun Eater/Empire of Silence', { 'Empire of Silence - 01.m4b': 9 });
+    const howling = await book('Ruocchio/Sun Eater/Howling Dark', { 'Howling Dark - 01.m4b': 9.0001, 'Howling Dark - 02.m4b': 10 });
+    mocks.collectCandidates.mockResolvedValue([
+      { title: 'Empire of Silence', asin: 'B0E', folder: empire },
+      { title: 'Howling Dark', asin: 'B0H', folder: howling },
+    ]);
+    mocks.checkRuntime.mockImplementation(async (_ms: number, asin: string) => ({ expectedMs: asin === 'B0E' ? 9 * H : 10 * H, matches: null }));
+
+    const report = await run('report');
+    expect(report).toMatchObject({ would_clean: 1, different_length_alerts: 0 });
+
+    const result = await run('apply');
+    expect(result).toMatchObject({ cleaned: 1, files_removed: 1 });
+    expect(await fs.readdir(howling)).toEqual(['Howling Dark.m4b']); // misplaced copy gone, leftover numbering cleaned
+    expect(await fs.readdir(empire)).toEqual(['Empire of Silence - 01.m4b']); // the real copy stays
+  });
+
   it('leaves folders alone when no complete copy matches the book', async () => {
     mocks.checkRuntime.mockResolvedValue({ expectedMs: 40 * H, matches: null });
     const result = await run('apply');

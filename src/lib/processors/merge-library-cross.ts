@@ -16,6 +16,7 @@ import { formatDuration } from '../utils/chapter-merger';
 import { checkRuntime } from '../services/library-merge.service';
 import { listAudioFiles, planFolderCleanup, sameLength, type AudioFileInfo } from '../services/library-dedupe.service';
 import { AUDIO_EXTENSIONS } from '../constants/audio-formats';
+import { stripVersionMarkers } from '../utils/book-versions';
 import type { Candidate } from './fix-chapters.processor';
 
 const FORMAT_PREFERENCE = ['.m4b', '.m4a', '.mp4', '.flac', '.mp3', '.aac'];
@@ -42,6 +43,12 @@ export interface CrossFolderOutcome {
 }
 
 const normalizeName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+/** Editions kept on purpose next to the standard one (path or folder names say so). */
+const ALTERNATE_EDITION_RE = /graphic\s*audio|dramati[sz](?:ed|ation)|full[\s-]*cast|first\s*drafts?|non[\s-]*canon/i;
+const isAlternateEdition = (folder: string) => ALTERNATE_EDITION_RE.test(folder);
+/** Title / folder name without edition labels ("[Dramatized Adaptation]"), for comparing books */
+const bookKey = (s: string) => normalizeName(stripVersionMarkers(s));
 const formatRank = (ext: string) => {
   const i = FORMAT_PREFERENCE.indexOf(ext);
   return i === -1 ? FORMAT_PREFERENCE.length : i;
@@ -109,15 +116,30 @@ export async function handleCrossFolderDuplicates(
     if (complete.length === 0 || copies.length < 2) continue; // per-folder pass reports these
 
     const best = complete[0];
+    const bestTitle = best.candidate.title;
     for (const other of copies) {
       if (other === best) continue;
       outcome.skipFolders.add(path.resolve(other.folder));
+      const otherTitle = other.candidate.title;
       const otherTotal = other.files.reduce((sum, f) => sum + (f.duration ?? 0), 0);
-      const sameName = normalizeName(path.basename(other.folder)) === normalizeName(path.basename(best.folder))
-        || normalizeName(path.basename(other.folder)) === normalizeName(title);
-      // Whole-folder removal only for a clean same-length copy (nothing else in that folder)
-      const sameCopy = other.complete && other.unexplained === 0 && sameLength(other.keptMs, best.keptMs) && sameName;
+      const where = (c: FolderCopy, ms: number) => `"${c.candidate.title}" (${c.folder}, ${formatDuration(ms)})`;
 
+      // Same ASIN but different titles or folder names = two books matched to one ASIN in
+      // Audiobookshelf (e.g. "The Poppy War 02" and "03", or a folder whose ABS title was overwritten)
+      if (bookKey(otherTitle) !== bookKey(bestTitle) || bookKey(path.basename(other.folder)) !== bookKey(path.basename(best.folder))) {
+        outcome.alerts++;
+        await logger.warn(`Same ASIN on different books — check their match in Audiobookshelf: ${where(best, best.keptMs)} vs ${where(other, otherTotal)}`);
+        continue;
+      }
+      // Graphic Audio / dramatized / first-draft editions are kept on purpose
+      if (isAlternateEdition(other.folder) !== isAlternateEdition(best.folder)) {
+        await logger.info(`Alternate version kept: ${where(other, otherTotal)} alongside ${where(best, best.keptMs)}`);
+        continue;
+      }
+
+      // Whole-folder removal only for a clean same-length copy (nothing else in that folder)
+      const sameName = normalizeName(path.basename(other.folder)) === normalizeName(path.basename(best.folder));
+      const sameCopy = other.complete && other.unexplained === 0 && sameLength(other.keptMs, best.keptMs) && sameName;
       if (!sameCopy) {
         outcome.alerts++;
         await logger.warn(

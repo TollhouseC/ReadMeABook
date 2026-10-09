@@ -37,7 +37,8 @@ export interface AudioFileInfo {
 
 export interface RemovalItem {
   path: string;
-  reason: 'duplicate full copy' | 'duplicate set of parts' | 'unreadable';
+  /** 'duplicate full copy' | 'duplicate set of parts' | 'unreadable' | 'misplaced copy of "Other Book"' */
+  reason: string;
 }
 
 export interface CleanupPlan {

@@ -20,7 +20,7 @@ import { formatDuration } from '../utils/chapter-merger';
 import { createJobProgress, CANCELLED_RESULT } from '../utils/job-progress';
 import { triggerLibraryScan } from '../utils/library-book-files';
 import { checkRuntime, mergeFolderInPlace, needsReencode } from '../services/library-merge.service';
-import { listAudioFiles, planFolderCleanup } from '../services/library-dedupe.service';
+import { listAudioFiles, planFolderCleanup, type AudioFileInfo } from '../services/library-dedupe.service';
 import { isAudiobookshelfBackend, syncFileChaptersToABS } from '../services/abs-chapter-sync';
 import { AUDIO_EXTENSIONS } from '../constants/audio-formats';
 import { collectCandidates, getMediaDir } from './fix-chapters.processor';
@@ -29,18 +29,47 @@ import { handleCrossFolderDuplicates } from './merge-library-cross';
 const LOOKUP_DELAY_MS = 1000;
 const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
-/** "Howling Dark - 02.m4b" → "Howling Dark.m4b" when that name is free (after clean-up). */
-async function cleanName(file: string): Promise<string | null> {
+/**
+ * "Howling Dark - 02.m4b" → "Howling Dark.m4b" when that name is free after clean-up
+ * (`freed` = files being removed, so report mode shows the rename too).
+ */
+async function cleanName(file: string, freed: Set<string>): Promise<string | null> {
   const ext = path.extname(file);
   const match = path.basename(file, ext).match(/^(.*?)\s*-\s*\d+$/);
   if (!match) return null;
   const target = path.join(path.dirname(file), `${match[1]}${ext}`);
+  if (freed.has(target)) return target;
   try {
     await fs.stat(target);
     return null; // taken
   } catch {
     return target;
   }
+}
+
+/** Max difference for "the same file" across folders (identical recordings probe identically). */
+const SAME_FILE_MS = 2000;
+
+/**
+ * A leftover file that's an exact-length copy of the book in a sibling folder (same series
+ * folder) — e.g. an old series-pack import that put every book of the pack into each book's
+ * folder. Returns the sibling book's folder name, or null.
+ */
+async function findMisplacedSource(folder: string, durationMs: number, cache: Map<string, AudioFileInfo[]>): Promise<string | null> {
+  const parent = path.dirname(folder);
+  const entries = await fs.readdir(parent, { withFileTypes: true }).catch(() => []);
+  for (const e of entries) {
+    if (!e.isDirectory()) continue;
+    const sibling = path.join(parent, e.name);
+    if (path.resolve(sibling) === path.resolve(folder)) continue;
+    if (!cache.has(sibling)) cache.set(sibling, await listAudioFiles(sibling).catch(() => []));
+    const files = cache.get(sibling)!;
+    // The sibling's own copy: its only audio file, or one named after the sibling's folder
+    const match = files.find(f => f.duration !== null && Math.abs(f.duration - durationMs) <= SAME_FILE_MS
+      && (files.length === 1 || path.basename(f.path).toLowerCase().startsWith(e.name.toLowerCase())));
+    if (match) return e.name;
+  }
+  return null;
 }
 
 async function audioFileCount(folder: string): Promise<number> {
@@ -73,6 +102,7 @@ export async function processMergeLibrary(payload: MergeLibraryPayload) {
   counts.different_length_alerts += cross.alerts;
   await progress.update(0, { label, force: true });
   const absMode = apply && (await isAudiobookshelfBackend());
+  const siblingCache = new Map<string, AudioFileInfo[]>();
   let cancelled = false;
   // Refresh the cancel flag in the background; ffmpeg's progress callback reads it synchronously
   const cancelPoll = setInterval(() => { progress.isCancelled().catch(() => {}); }, 2000);
@@ -104,6 +134,17 @@ export async function processMergeLibrary(payload: MergeLibraryPayload) {
 
         const files = await listAudioFiles(folder);
         const plan = planFolderCleanup(files, expectedMs);
+        // Leftovers that are exact copies of a sibling book (wrong folder) → removable
+        if (plan.resolved && plan.unexplained.length > 0) {
+          const stillUnexplained: string[] = [];
+          for (const p of plan.unexplained) {
+            const info = files.find(f => f.path === p);
+            const source = info?.duration ? await findMisplacedSource(folder, info.duration, siblingCache) : null;
+            if (source) plan.remove.push({ path: p, reason: `misplaced copy of "${source}"` });
+            else stillUnexplained.push(p);
+          }
+          plan.unexplained = stillUnexplained;
+        }
         const name = (p: string) => path.basename(p);
         const total = files.reduce((sum, f) => sum + (f.duration ?? 0), 0);
 
@@ -149,7 +190,7 @@ export async function processMergeLibrary(payload: MergeLibraryPayload) {
         if (plan.keep.length < 2) {
           let kept = plan.keep[0];
           // Leftover numbering on the one file kept: "Title - 02.m4b" → "Title.m4b"
-          const renamed = plan.remove.length > 0 ? await cleanName(kept) : null;
+          const renamed = plan.remove.length > 0 ? await cleanName(kept, new Set(plan.remove.map(r => r.path))) : null;
           if (renamed) {
             if (!apply) await logger.info(`Would rename "${name(kept)}" → "${name(renamed)}"`);
             else {
