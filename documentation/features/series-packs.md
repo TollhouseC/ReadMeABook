@@ -67,6 +67,11 @@ Some books only exist as part of a pack ("Mistborn Complete Series", "Brandon Sa
 - **qBittorrent:** `stopCondition` on add; `setFilePriority()`; pause/resume fall back to qBittorrent 5's `/torrents/stop`/`/torrents/start` on 404.
 - **Audible series scraping:** `seriesPart` parsed for both layouts (`series-header="Book 1"` / legacy `h2`).
 
+## Fixed: whole pack imported into one book (2026-10-09)
+- **Cause:** Retry Failed Imports and the request "retry" action re-ran `organize_files` without `selectedFiles`, so a pack-linked book imported EVERY audio file of the pack (renamed `Title - 01/02/03`; the other books' files were unfinished placeholders from file priority 0 → unreadable). Seen in Sun Eater folders.
+- **Fix:** `resolveImportSelection()` in `organize-files.processor.ts` — when no selection is passed, the request's selected `download_history.pack_files` is used; a pack with an empty list is refused (error) instead of imported whole. Covers every caller.
+- **Clean-up of affected folders:** Library Merge job (misplaced exact copies of sibling books + unreadable leftovers) — see [chapter-merging.md](chapter-merging.md).
+
 ## Limitations
 - qBittorrent only (other clients skip pack search).
 - Books whose pack folder uses a different title (e.g. UK vs US title) won't match by title; series packs can still match by explicit position.

@@ -19,12 +19,36 @@ import { getAudibleService } from '../integrations/audible.service';
 import { fixChaptersIfBetter } from '../utils/chapter-fixer';
 
 /**
+ * Files to import for this request. Callers that re-run an import (Retry Failed Imports,
+ * the request "retry" action, …) don't pass a selection — for a series/author pack that
+ * meant importing EVERY book of the pack into this book's folder. The selection now always
+ * comes from the request's current download when it's a pack; a pack with no files listed
+ * for this book is refused rather than imported whole.
+ */
+export async function resolveImportSelection(requestId: string, selectedFiles?: string[]): Promise<string[] | undefined> {
+  if (selectedFiles && selectedFiles.length > 0) return selectedFiles;
+
+  const download = await prisma.downloadHistory.findFirst({
+    where: { requestId, selected: true },
+    orderBy: { createdAt: 'desc' },
+    select: { packFiles: true, torrentName: true },
+  });
+  if (!download || !Array.isArray(download.packFiles)) return undefined;
+
+  const packFiles = download.packFiles as string[];
+  if (packFiles.length === 0) {
+    throw new Error(`"${download.torrentName ?? 'pack'}" is a multi-book pack with no files listed for this book — refusing to import the whole pack`);
+  }
+  return packFiles;
+}
+
+/**
  * Process organize files job
  * Moves completed downloads to media library in proper directory structure
  * Handles both audiobook and ebook request types with appropriate branching
  */
 export async function processOrganizeFiles(payload: OrganizeFilesPayload): Promise<any> {
-  const { requestId, audiobookId, downloadPath, jobId, cleanupSource, selectedFiles } = payload;
+  const { requestId, audiobookId, downloadPath, jobId, cleanupSource } = payload;
 
   const logger = RMABLogger.forJob(jobId, 'OrganizeFiles');
 
@@ -73,6 +97,12 @@ export async function processOrganizeFiles(payload: OrganizeFilesPayload): Promi
     }
 
     logger.info(`Organizing: ${audiobook.title} by ${audiobook.author}`);
+
+    // Pack downloads: import only this book's files, however this import was started
+    const selectedFiles = await resolveImportSelection(requestId, payload.selectedFiles);
+    if (selectedFiles && !payload.selectedFiles?.length) {
+      logger.info(`Pack download: importing only this book's ${selectedFiles.length} file(s) from it`);
+    }
 
     // Fetch missing metadata from AudibleCache if needed
     // Year and narrator can both be part of path templates

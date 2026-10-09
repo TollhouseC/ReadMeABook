@@ -119,6 +119,63 @@ describe('processOrganizeFiles', () => {
     });
   });
 
+  describe('series/author pack downloads', () => {
+    const okResult = {
+      success: true, targetPath: '/media/Ruocchio/Sun Eater/Howling Dark', filesMovedCount: 1, errors: [],
+      audioFiles: ['/media/Ruocchio/Sun Eater/Howling Dark/Howling Dark.m4b'],
+    };
+    const setup = () => {
+      prismaMock.request.update.mockResolvedValue({});
+      prismaMock.audiobook.findUnique.mockResolvedValue({
+        id: 'ab-hd', title: 'Howling Dark', author: 'Christopher Ruocchio', narrator: null, coverArtUrl: null, audibleAsin: null,
+      });
+      prismaMock.audiobook.update.mockResolvedValue({});
+      organizerMock.organize.mockResolvedValue(okResult);
+      configMock.getBackendMode.mockResolvedValue('plex');
+      configMock.get.mockResolvedValue(null);
+    };
+
+    it('a retried import (no file list) still imports only this book\'s files from the pack', async () => {
+      setup();
+      prismaMock.downloadHistory.findFirst.mockResolvedValue({
+        packFiles: ['Sun Eater Pack/02 - Howling Dark.m4b'], torrentName: 'Sun Eater 1-3',
+      });
+
+      const { processOrganizeFiles } = await import('@/lib/processors/organize-files.processor');
+      // Retry Failed Imports / the retry action call without selectedFiles
+      await processOrganizeFiles({ requestId: 'req-hd', audiobookId: 'ab-hd', downloadPath: '/downloads/Sun Eater Pack', jobId: 'job-r' });
+
+      expect(prismaMock.downloadHistory.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+        where: { requestId: 'req-hd', selected: true },
+      }));
+      const selected = organizerMock.organize.mock.calls[0][5];
+      expect(selected).toEqual(['Sun Eater Pack/02 - Howling Dark.m4b']);
+    });
+
+    it('refuses to import a pack whole when no files are listed for this book', async () => {
+      setup();
+      prismaMock.downloadHistory.findFirst.mockResolvedValue({ packFiles: [], torrentName: 'Sun Eater 1-3' });
+      prismaMock.request.findUnique.mockResolvedValue({ id: 'req-hd', audiobook: { title: 'Howling Dark', author: 'A' }, user: { plexUsername: 'u' } });
+
+      const { processOrganizeFiles } = await import('@/lib/processors/organize-files.processor');
+      await expect(processOrganizeFiles({ requestId: 'req-hd', audiobookId: 'ab-hd', downloadPath: '/downloads/Sun Eater Pack', jobId: 'job-e' }))
+        .rejects.toThrow(/refusing to import the whole pack/);
+      expect(organizerMock.organize).not.toHaveBeenCalled();
+    });
+
+    it('uses an explicit file list as given, and leaves normal downloads unfiltered', async () => {
+      setup();
+      const { processOrganizeFiles, resolveImportSelection } = await import('@/lib/processors/organize-files.processor');
+
+      expect(await resolveImportSelection('req-1', ['a/b.m4b'])).toEqual(['a/b.m4b']);
+      expect(prismaMock.downloadHistory.findFirst).not.toHaveBeenCalled();
+
+      prismaMock.downloadHistory.findFirst.mockResolvedValue({ packFiles: null, torrentName: 'Single Book' });
+      await processOrganizeFiles({ requestId: 'req-1', audiobookId: 'ab-hd', downloadPath: '/downloads/book', jobId: 'job-n' });
+      expect(organizerMock.organize.mock.calls[0][5]).toBeUndefined();
+    });
+  });
+
   it('skips filesystem scan when disabled', async () => {
     prismaMock.request.update.mockResolvedValue({});
     prismaMock.audiobook.findUnique.mockResolvedValue({
