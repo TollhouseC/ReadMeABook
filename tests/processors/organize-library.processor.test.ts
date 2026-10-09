@@ -70,6 +70,11 @@ describe('processOrganizeLibrary', () => {
     expect(report).toMatchObject({ would_move: 1, moved: 0, in_place: 1 });
     expect(await fs.readdir(book2)).toContain(`${HW} 2.m4b`); // untouched
 
+    // Earlier undo logs are all kept
+    const undoDir = path.join(configDir, 'organize-undo');
+    await fs.mkdir(undoDir, { recursive: true });
+    for (let i = 0; i < 25; i++) await fs.writeFile(path.join(undoDir, `undo-2020010${i % 10}-0000${String(i).padStart(2, '0')}.json`), '[]');
+
     const result = await run('apply');
     const target = path.join(state.root, RMAB_AUTHOR, HW, `${HW} 2`);
     expect(result).toMatchObject({ moved: 1, failed: 0 });
@@ -79,8 +84,9 @@ describe('processOrganizeLibrary', () => {
     expect(prismaMock.audiobook.updateMany).toHaveBeenCalledWith({ where: { absItemId: 'li-2' }, data: { filePath: target } });
     expect(mocks.triggerLibraryScan).toHaveBeenCalled();
 
-    const [undo] = await fs.readdir(path.join(configDir, 'organize-undo'));
-    const entries = JSON.parse(await fs.readFile(path.join(configDir, 'organize-undo', undo), 'utf-8'));
+    const logs = (await fs.readdir(undoDir)).sort();
+    expect(logs).toHaveLength(26);
+    const entries = JSON.parse(await fs.readFile(path.join(undoDir, logs[logs.length - 1]), 'utf-8'));
     expect(entries).toEqual([expect.objectContaining({ from: book2, to: target, title: `${HW} 2` })]);
   });
 

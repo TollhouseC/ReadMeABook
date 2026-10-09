@@ -5,7 +5,7 @@
  * Library-wide: moves book folders so each author has one folder and each series stays
  * together (plan: library-organize.service.ts). `report` lists the moves; `apply` renames
  * the folders (no copying), updates ReadMeABook's recorded paths, removes folders left
- * empty, writes an undo log (/app/config/organize-undo, newest 20 kept) and triggers a
+ * empty, writes an undo log (/app/config/organize-undo, all kept — they're tiny) and triggers a
  * library scan. Book folders are never renamed, only moved.
  */
 
@@ -23,7 +23,6 @@ import { SpellingRegistry } from '../utils/author-identity';
 import { planLibraryOrganize, type OrganizeBook, type PlannedMove } from '../services/library-organize.service';
 import { collectCandidates, getMediaDir } from './fix-chapters.processor';
 
-const UNDO_KEEP = 20;
 /** ReadMeABook's own records outweigh Audiobookshelf metadata and folder names when picking a spelling */
 const RMAB_WEIGHT = 3;
 
@@ -63,8 +62,6 @@ async function writeUndoLog(moves: Array<PlannedMove & { movedAt: string }>, log
     const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
     const file = path.join(dir, `undo-${stamp}.json`);
     await fs.writeFile(file, JSON.stringify(moves.map(({ from, to, title, movedAt }) => ({ from, to, title, movedAt })), null, 2));
-    const logs = (await fs.readdir(dir)).filter(f => /^undo-.*\.json$/.test(f)).sort();
-    for (const old of logs.slice(0, Math.max(0, logs.length - UNDO_KEEP))) await fs.unlink(path.join(dir, old)).catch(() => {});
     await logger.info(`Undo log: ${file}`);
   } catch (error) {
     await logger.warn(`Could not write the undo log: ${error instanceof Error ? error.message : String(error)}`);
