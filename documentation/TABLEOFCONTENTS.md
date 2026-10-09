@@ -31,6 +31,7 @@
 - **ABS library service** → `src/lib/services/library/AudiobookshelfLibraryService.ts`
 - **Backend mode selection (Plex vs ABS)** → [backend/services/config.md](backend/services/config.md)
 - **File hash matching for accurate ASIN** → [fixes/file-hash-matching.md](fixes/file-hash-matching.md)
+- **Library Match Check: wrong ABS matches (length/title/shared ASIN), re-match, wrong-audio detection** → [features/library-match.md](features/library-match.md)
 - **OIDC authentication** → [backend/services/auth.md](backend/services/auth.md)
 
 ## Reading Shelves (Goodreads, Hardcover)
@@ -89,6 +90,7 @@
 - **Bull queue, processors, retry logic** → [backend/services/jobs.md](backend/services/jobs.md)
 - **Stalled downloads (24h no progress → blacklist + re-search)** → [backend/services/scheduler.md](backend/services/scheduler.md#stalled-download-detection)
 - **Scheduled/recurring jobs (cron)** → [backend/services/scheduler.md](backend/services/scheduler.md)
+- **Library scan without the 12h missing-item wait (Library Scan (No Wait))** → [backend/services/jobs.md](backend/services/jobs.md)
 - **Job types:** search, download monitor, organize, Plex scan, cleanup, retries
 
 ## Logging

@@ -10,7 +10,7 @@ import { RMABLogger } from '../utils/logger';
 
 const logger = RMABLogger.create('Scheduler');
 
-export type ScheduledJobType = 'plex_library_scan' | 'plex_recently_added_check' | 'audible_refresh' | 'retry_missing_torrents' | 'retry_failed_imports' | 'cleanup_seeded_torrents' | 'monitor_rss_feeds' | 'sync_reading_shelves' | 'check_watched_lists' | 'check_stalled_downloads' | 'chapter_check_report' | 'chapter_check_apply' | 'library_layout_report' | 'library_layout_apply' | 'chapter_sync_report' | 'chapter_sync_apply' | 'library_merge_report' | 'library_merge_apply' | 'library_organize_report' | 'library_organize_apply';
+export type ScheduledJobType = 'plex_library_scan' | 'plex_library_scan_now' | 'plex_recently_added_check' | 'audible_refresh' | 'retry_missing_torrents' | 'retry_failed_imports' | 'cleanup_seeded_torrents' | 'monitor_rss_feeds' | 'sync_reading_shelves' | 'check_watched_lists' | 'check_stalled_downloads' | 'chapter_check_report' | 'chapter_check_apply' | 'library_layout_report' | 'library_layout_apply' | 'chapter_sync_report' | 'chapter_sync_apply' | 'library_merge_report' | 'library_merge_apply' | 'library_organize_report' | 'library_organize_apply' | 'library_match_report' | 'library_match_apply';
 
 export interface ScheduledJob {
   id: string;
@@ -85,6 +85,14 @@ export class SchedulerService {
         type: 'plex_library_scan' as ScheduledJobType,
         schedule: '0 */6 * * *', // Every 6 hours
         enabled: false, // Start disabled until first setup is complete
+        payload: {},
+      },
+      {
+        // Run manually: after moving/merging folders, relink books without the 12h wait
+        name: 'Library Scan (No Wait)',
+        type: 'plex_library_scan_now' as ScheduledJobType,
+        schedule: '0 7 1 * *', // Monthly if enabled
+        enabled: false,
         payload: {},
       },
       {
@@ -227,6 +235,22 @@ export class SchedulerService {
         name: 'Library Organize (Apply)',
         type: 'library_organize_apply' as ScheduledJobType,
         schedule: '0 6 1 * *', // Monthly if enabled
+        enabled: false,
+        payload: {},
+      },
+      {
+        // Run manually: lists Audiobookshelf items matched to the wrong Audible book
+        name: 'Library Match Check (Report Only)',
+        type: 'library_match_report' as ScheduledJobType,
+        schedule: '0 8 1 * *', // Monthly if enabled
+        enabled: false,
+        payload: {},
+      },
+      {
+        // Run manually: re-matches the confident ones in Audiobookshelf
+        name: 'Library Match Check (Apply)',
+        type: 'library_match_apply' as ScheduledJobType,
+        schedule: '0 8 1 * *', // Monthly if enabled
         enabled: false,
         payload: {},
       },
@@ -454,6 +478,9 @@ export class SchedulerService {
       case 'plex_library_scan':
         bullJobId = await this.triggerPlexScan(job);
         break;
+      case 'plex_library_scan_now':
+        bullJobId = await this.triggerPlexScan({ ...job, payload: { ...(job.payload || {}), skipGrace: true } });
+        break;
       case 'plex_recently_added_check':
         bullJobId = await this.triggerPlexRecentlyAddedCheck(job);
         break;
@@ -492,6 +519,13 @@ export class SchedulerService {
       case 'library_layout_apply':
         bullJobId = await this.jobQueue.addFixLibraryLayoutJob({
           mode: job.type === 'library_layout_apply' ? 'apply' : 'report',
+          scheduledJobId: job.id,
+        });
+        break;
+      case 'library_match_report':
+      case 'library_match_apply':
+        bullJobId = await this.jobQueue.addMatchLibraryJob({
+          mode: job.type === 'library_match_apply' ? 'apply' : 'report',
           scheduledJobId: job.id,
         });
         break;
@@ -603,7 +637,8 @@ export class SchedulerService {
     return await this.jobQueue.addPlexScanJob(
       libraryId || '',
       job.payload?.partial,
-      job.payload?.path
+      job.payload?.path,
+      job.payload?.skipGrace === true
     );
   }
 

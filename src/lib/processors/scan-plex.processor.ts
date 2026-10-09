@@ -26,8 +26,11 @@ import { createJobProgress, CANCELLED_RESULT } from '../utils/job-progress';
  * Process library scan job
  * Scans library and updates plex_library table (works for both Plex and Audiobookshelf)
  */
+/** No-wait scans fall back to the grace period when more than this share of records is missing. */
+const NO_WAIT_MAX_MISSING = 0.1;
+
 export async function processScanPlex(payload: ScanPlexPayload): Promise<any> {
-  const { libraryId, partial, path, jobId } = payload;
+  const { libraryId, partial, path, jobId, skipGrace } = payload;
 
   const logger = RMABLogger.forJob(jobId, 'ScanLibrary');
 
@@ -308,8 +311,16 @@ export async function processScanPlex(payload: ScanPlexPayload): Promise<any> {
       });
 
       // Grace period: only treat an item as removed once it has been missing for
-      // STALE_GRACE_MS, so one incomplete scan can't cancel books still in the library
-      const graceCutoff = new Date(Date.now() - STALE_GRACE_MS);
+      // STALE_GRACE_MS, so one incomplete scan can't cancel books still in the library.
+      // "No wait" scans skip it — unless so much is missing that the scan looks incomplete.
+      const knownTotal = scannedPlexGuids.length + missingLibraryItems.length;
+      const noWait = skipGrace === true && missingLibraryItems.length <= knownTotal * NO_WAIT_MAX_MISSING;
+      if (skipGrace && !noWait) {
+        logger.warn(`No-wait scan: ${missingLibraryItems.length} of ${knownTotal} library record(s) missing (over ${NO_WAIT_MAX_MISSING * 100}%) — the library may be mid-scan, keeping the ${STALE_GRACE_MS / 3600000}h wait`);
+      } else if (noWait && missingLibraryItems.length > 0) {
+        logger.info(`No-wait scan: handling ${missingLibraryItems.length} missing library record(s) now`);
+      }
+      const graceCutoff = noWait ? new Date(Date.now() + 1000) : new Date(Date.now() - STALE_GRACE_MS);
       const staleLibraryItems = missingLibraryItems.filter(item => item.lastScannedAt < graceCutoff);
       const waiting = missingLibraryItems.length - staleLibraryItems.length;
       if (waiting > 0) {

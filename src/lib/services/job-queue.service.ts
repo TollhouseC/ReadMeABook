@@ -15,7 +15,7 @@ const logger = RMABLogger.create('JobQueue');
 
 /** Jobs that report live progress (admin header indicator / Jobs page). */
 const LONG_JOB_TYPES: string[] = [
-  'fix_chapters', 'fix_library_layout', 'merge_library_book', 'merge_library', 'organize_library', 'plex_library_scan', 'scan_plex', 'check_watched_lists',
+  'fix_chapters', 'fix_library_layout', 'merge_library_book', 'merge_library', 'organize_library', 'match_library', 'plex_library_scan', 'scan_plex', 'check_watched_lists',
 ];
 
 const queuedProgress = () => ({ current: 0, total: null, label: 'Queued', cancellable: true, updatedAt: new Date().toISOString() });
@@ -42,6 +42,7 @@ export type JobType =
   | 'fix_library_layout'
   | 'merge_library'
   | 'organize_library'
+  | 'match_library'
   | 'send_notification'
   // Ebook-specific job types
   | 'search_ebook'
@@ -97,6 +98,8 @@ export interface ScanPlexPayload extends JobPayload {
   libraryId?: string;
   partial?: boolean;
   path?: string;
+  /** Treat missing items as gone right away (no 12h grace) — falls back when too many are missing */
+  skipGrace?: boolean;
 }
 
 export interface PlexRecentlyAddedPayload extends JobPayload {
@@ -149,6 +152,12 @@ export interface FixLibraryLayoutPayload extends JobPayload {
 
 export interface OrganizeLibraryPayload extends JobPayload {
   /** 'report' lists folder moves, 'apply' makes them */
+  mode?: 'report' | 'apply';
+  scheduledJobId?: string;
+}
+
+export interface MatchLibraryPayload extends JobPayload {
+  /** 'report' lists wrong Audiobookshelf matches, 'apply' re-matches the confident ones */
   mode?: 'report' | 'apply';
   scheduledJobId?: string;
 }
@@ -503,6 +512,12 @@ export class JobQueueService {
       return await processOrganizeLibrary(payloadWithJobId);
     });
 
+    this.queue.process('match_library', 1, async (job: BullJob<MatchLibraryPayload>) => {
+      const { processMatchLibrary } = await import('../processors/match-library.processor');
+      const payloadWithJobId = await this.ensureJobRecord(job, 'match_library');
+      return await processMatchLibrary(payloadWithJobId);
+    });
+
     // Send notification processor
     this.queue.process('send_notification', 2, async (job: BullJob<SendNotificationPayload>) => {
       const { processSendNotification } = await import('../processors/send-notification.processor');
@@ -769,13 +784,14 @@ export class JobQueueService {
   /**
    * Add Plex scan job
    */
-  async addPlexScanJob(libraryId: string, partial?: boolean, path?: string): Promise<string> {
+  async addPlexScanJob(libraryId: string, partial?: boolean, path?: string, skipGrace?: boolean): Promise<string> {
     return await this.addJob(
       'scan_plex',
       {
         libraryId,
         partial,
         path,
+        ...(skipGrace && { skipGrace: true }),
       } as ScanPlexPayload,
       {
         priority: 7,
@@ -934,6 +950,13 @@ export class JobQueueService {
    */
   async addOrganizeLibraryJob(options: { mode?: 'report' | 'apply'; scheduledJobId?: string }): Promise<string> {
     return await this.addJob('organize_library', { ...options } as OrganizeLibraryPayload, { priority: 9 });
+  }
+
+  /**
+   * Find (report) or fix (apply) Audiobookshelf items matched to the wrong Audible book
+   */
+  async addMatchLibraryJob(options: { mode?: 'report' | 'apply'; scheduledJobId?: string }): Promise<string> {
+    return await this.addJob('match_library', { ...options } as MatchLibraryPayload, { priority: 9 });
   }
 
   /**

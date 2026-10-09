@@ -81,7 +81,13 @@ describe('SchedulerService', () => {
     const service = new SchedulerService();
     await service.start();
 
-    expect(prismaMock.scheduledJob.create).toHaveBeenCalledTimes(20);
+    expect(prismaMock.scheduledJob.create).toHaveBeenCalledTimes(23);
+    expect(prismaMock.scheduledJob.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ type: 'library_match_apply', enabled: false }),
+    });
+    expect(prismaMock.scheduledJob.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ type: 'plex_library_scan_now', enabled: false }),
+    });
     expect(prismaMock.scheduledJob.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ type: 'library_organize_apply', enabled: false }),
     });
@@ -237,6 +243,20 @@ describe('SchedulerService', () => {
     expect(jobQueueMock.addRepeatableJob).not.toHaveBeenCalled();
   });
 
+  it('triggers the no-wait library scan with skipGrace', async () => {
+    prismaMock.scheduledJob.findUnique.mockResolvedValue({
+      id: 'job-now', name: 'Library Scan (No Wait)', type: 'plex_library_scan_now', schedule: '0 7 1 * *', enabled: false, payload: {},
+    });
+    configServiceMock.getBackendMode.mockResolvedValue('plex');
+    configServiceMock.getMany.mockResolvedValue({ plex_url: 'http://plex', plex_token: 'token', plex_audiobook_library_id: 'lib-1' });
+    jobQueueMock.addPlexScanJob.mockResolvedValue('bull-now');
+    prismaMock.scheduledJob.update.mockResolvedValue({});
+
+    const { SchedulerService } = await import('@/lib/services/scheduler.service');
+    expect(await new SchedulerService().triggerJobNow('job-now')).toBe('bull-now');
+    expect(jobQueueMock.addPlexScanJob).toHaveBeenCalledWith('lib-1', undefined, undefined, true);
+  });
+
   it('triggers Plex scan jobs with validated config', async () => {
     prismaMock.scheduledJob.findUnique.mockResolvedValue({
       id: 'job-4',
@@ -260,7 +280,7 @@ describe('SchedulerService', () => {
     const jobId = await service.triggerJobNow('job-4');
 
     expect(jobId).toBe('bull-1');
-    expect(jobQueueMock.addPlexScanJob).toHaveBeenCalledWith('lib-1', undefined, undefined);
+    expect(jobQueueMock.addPlexScanJob).toHaveBeenCalledWith('lib-1', undefined, undefined, false);
     expect(prismaMock.scheduledJob.update).toHaveBeenCalledWith({
       where: { id: 'job-4' },
       data: {
@@ -307,7 +327,7 @@ describe('SchedulerService', () => {
     const jobId = await service.triggerJobNow('job-4b');
 
     expect(jobId).toBe('bull-abs');
-    expect(jobQueueMock.addPlexScanJob).toHaveBeenCalledWith('abs-lib', undefined, undefined);
+    expect(jobQueueMock.addPlexScanJob).toHaveBeenCalledWith('abs-lib', undefined, undefined, false);
   });
 
   it('throws on unknown scheduled job types', async () => {

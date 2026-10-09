@@ -66,6 +66,7 @@ Manages background job queue using Bull (Redis-backed) for async tasks: searchin
 - **Removal detection:** items no longer in the library (stale/orphaned) have their linked audiobook reset and their 'available'/'downloaded' request set to `cancelled` (errorMessage 'Removed from library') so the book shows as not-in-library and can be re-requested
 - **Removal safety** (`src/lib/services/library-relink.service.ts`):
   - **Grace:** a record missing from a scan is only treated as removed once `lastScannedAt` is older than `STALE_GRACE_MS` (12h ≈ 2 scans); one incomplete scan can't cancel anything.
+  - **No wait:** Jobs page "Library Scan (No Wait)" (`plex_library_scan_now`, manual) → `scan_plex` with `skipGrace` → missing records handled now (relink by ASIN / removed). Falls back to the 12h grace when > 10% of the library's records are missing (`NO_WAIT_MAX_MISSING`, library likely mid-scan). Use after Library Organize/Merge (Apply) + an ABS scan.
   - **Relink by ASIN:** a stale record / orphaned audiobook whose ASIN is in the current scan under another item ID (ABS re-creates items on folder moves) → links moved (`relinkAudiobooks`/`linkAudiobook`), requests untouched.
   - **Restore (step 7):** requests `cancelled` with 'Removed from library' whose ASIN is in the current scan → `available`, relinked; skipped if the book has a newer active request.
   - Result adds `audiobooksRelinked`, `requestsRestored`.

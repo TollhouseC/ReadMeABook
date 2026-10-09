@@ -303,6 +303,55 @@ describe('processScanPlex', () => {
     expect(result).toMatchObject({ audiobooksRelinked: 1, requestsRestored: 1 });
   });
 
+  describe('no-wait scan', () => {
+    const setup = (scanned: number, missing: Array<{ id: string; plexGuid: string; asin: string }>) => {
+      configMock.getBackendMode.mockResolvedValue('plex');
+      configMock.getPlexConfig.mockResolvedValue({ serverUrl: 'http://plex', authToken: 'token', libraryId: 'lib-1', machineIdentifier: 'machine' });
+      libraryServiceMock.getCoverCachingParams.mockResolvedValue({ backendBaseUrl: 'http://plex', authToken: 'token', backendMode: 'plex' });
+      const items = Array.from({ length: scanned }, (_, i) => ({
+        id: `r${i}`, externalId: `guid-${i}`, title: `Book ${i}`, author: 'A', asin: `B0BOOK${i}`, addedAt: new Date(), updatedAt: new Date(),
+      }));
+      libraryServiceMock.getLibraryItems.mockResolvedValue(items);
+      prismaMock.plexLibrary.findFirst.mockResolvedValue(null);
+      prismaMock.plexLibrary.create.mockResolvedValue({ id: 'x', plexGuid: 'x' });
+      prismaMock.plexLibrary.findMany
+        // Missing from this scan, last seen a minute ago (moved folder: same ASIN under a new ID)
+        .mockResolvedValueOnce(missing.map(m => ({ ...m, title: 'Moved Book', lastScannedAt: new Date(Date.now() - 60000) })))
+        .mockResolvedValue([]);
+      prismaMock.plexLibrary.delete.mockResolvedValue({});
+      prismaMock.audiobook.updateMany.mockResolvedValue({ count: 1 });
+      prismaMock.audiobook.findMany.mockResolvedValue([]);
+      prismaMock.request.findMany.mockResolvedValue([]);
+      prismaMock.request.findFirst.mockResolvedValue(null);
+    };
+
+    it('relinks a just-moved book right away instead of waiting 12h', async () => {
+      setup(10, [{ id: 'old-rec', plexGuid: 'old-guid', asin: 'B0BOOK3' }]);
+      const matcher = await import('@/lib/utils/audiobook-matcher');
+      (matcher.findPlexMatch as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+      const { processScanPlex } = await import('@/lib/processors/scan-plex.processor');
+      const result = await processScanPlex({ jobId: 'job-now', skipGrace: true });
+
+      expect(prismaMock.plexLibrary.delete).toHaveBeenCalledWith({ where: { id: 'old-rec' } });
+      expect(result).toMatchObject({ audiobooksRelinked: 1 });
+    });
+
+    it('keeps the 12h wait when too much is missing (library mid-scan)', async () => {
+      setup(2, [
+        { id: 'm1', plexGuid: 'old-1', asin: 'B0BOOK0' },
+        { id: 'm2', plexGuid: 'old-2', asin: 'B0BOOK1' },
+      ]);
+      const matcher = await import('@/lib/utils/audiobook-matcher');
+      (matcher.findPlexMatch as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+      const { processScanPlex } = await import('@/lib/processors/scan-plex.processor');
+      await processScanPlex({ jobId: 'job-now2', skipGrace: true });
+
+      expect(prismaMock.plexLibrary.delete).not.toHaveBeenCalled();
+    });
+  });
+
   it('relinks an orphaned audiobook by ASIN instead of cancelling its request', async () => {
     configMock.getBackendMode.mockResolvedValue('audiobookshelf');
     libraryServiceMock.getCoverCachingParams.mockResolvedValue({ backendBaseUrl: 'http://abs', authToken: 't', backendMode: 'audiobookshelf' });

@@ -288,6 +288,7 @@ export default function AdminLogsPage() {
               <option value="fix_library_layout">Fix Library Layout</option>
               <option value="merge_library">Library Merge</option>
               <option value="organize_library">Library Organize</option>
+              <option value="match_library">Library Match Check</option>
             </select>
           </div>
         </div>

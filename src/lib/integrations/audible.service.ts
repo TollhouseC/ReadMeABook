@@ -571,6 +571,25 @@ export class AudibleService {
     }
   }
 
+  /** Catalog details (title, authors, runtime) for up to 50 ASINs in one call. */
+  async getProductsByAsins(asins: string[]): Promise<AudibleAudiobook[]> {
+    if (asins.length === 0) return [];
+    await this.initialize();
+    try {
+      const { data: response } = await this.fetchWithRetry(
+        '/1.0/catalog/products',
+        { params: { asins: asins.slice(0, AUDIBLE_PAGE_SIZE).join(','), response_groups: CATALOG_RESPONSE_GROUPS } },
+        3,
+        this.apiClient,
+      );
+      const envelope: CatalogProductsResponse = response.data;
+      return (envelope.products ?? []).map(mapCatalogProduct);
+    } catch (error) {
+      logger.warn('Batch ASIN lookup failed', { error: error instanceof Error ? error.message : String(error) });
+      return [];
+    }
+  }
+
   /**
    * The catalog API `author=` param takes an author name (not ASIN), so we filter
    * client-side by checking that at least one author entry matches the target ASIN.
