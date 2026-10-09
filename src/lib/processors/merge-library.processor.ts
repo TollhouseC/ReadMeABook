@@ -1,29 +1,42 @@
 /**
- * Component: Library Merge Processor (library-wide)
+ * Component: Library Merge Processor (library-wide clean-up + merge)
  * Documentation: documentation/features/chapter-merging.md
  *
- * Finds book folders still holding split audio (≥2 files, same format — m4b parts or
- * mp3 chapters) and merges each into one M4B in place (mp3 → AAC M4B). Safety: the
- * parts' total length must match the book's Audible runtime (catches folders holding a
- * different book or a partial set). `report` lists what would merge; `apply` merges.
- * Cancel stops before the next book, or stops ffmpeg mid-book (parts untouched).
+ * For every book folder with 2+ audio files:
+ *   1. Clean up duplicates (library-dedupe.service): another full copy (e.g. .m4a next to
+ *      .m4b), a duplicate set of parts, or unreadable leftovers — recognised against the
+ *      book's Audible runtime. The best complete copy is kept (M4B > M4A > MP3, larger).
+ *   2. If the kept copy is still split, merge it into one M4B in place (mp3/m4a → AAC).
+ * Unexplained audio (could be a different book) is never deleted; such folders are left
+ * alone and reported. `report` lists everything; `apply` does it. Cancel stops before the
+ * next book or mid-ffmpeg (parts untouched).
  */
 
+import fs from 'fs/promises';
+import path from 'path';
 import { RMABLogger } from '../utils/logger';
 import type { MergeLibraryPayload } from '../services/job-queue.service';
 import { formatDuration } from '../utils/chapter-merger';
 import { createJobProgress, CANCELLED_RESULT } from '../utils/job-progress';
 import { triggerLibraryScan } from '../utils/library-book-files';
-import { checkRuntime, listMergeableParts, mergeFolderInPlace, needsReencode, totalDurationMs } from '../services/library-merge.service';
+import { checkRuntime, mergeFolderInPlace, needsReencode } from '../services/library-merge.service';
+import { listAudioFiles, planFolderCleanup } from '../services/library-dedupe.service';
+import { isAudiobookshelfBackend, syncFileChaptersToABS } from '../services/abs-chapter-sync';
+import { AUDIO_EXTENSIONS } from '../constants/audio-formats';
 import { collectCandidates, getMediaDir } from './fix-chapters.processor';
 
 const LOOKUP_DELAY_MS = 1000;
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+async function audioFileCount(folder: string): Promise<number> {
+  const entries = await fs.readdir(folder, { withFileTypes: true });
+  return entries.filter(e => e.isFile() && (AUDIO_EXTENSIONS as readonly string[]).includes(path.extname(e.name).toLowerCase())).length;
+}
+
 export async function processMergeLibrary(payload: MergeLibraryPayload) {
   const logger = RMABLogger.forJob(payload.jobId, 'MergeLibrary');
   const apply = payload.mode === 'apply';
-  const label = apply ? 'Merging split books' : 'Checking for split books';
+  const label = apply ? 'Cleaning up & merging split books' : 'Checking for duplicates & split books';
   const progress = createJobProgress(payload.jobId, `${label} — finding books`, { cancellable: true });
   await progress.update(0, { force: true });
 
@@ -32,8 +45,10 @@ export async function processMergeLibrary(payload: MergeLibraryPayload) {
   await progress.update(0, { total: candidates.length, label, force: true });
 
   const counts = {
-    merged: 0, would_merge: 0, single_file: 0, mixed_formats: 0, length_mismatch: 0, no_runtime: 0, unreadable: 0, failed: 0,
+    merged: 0, would_merge: 0, cleaned: 0, would_clean: 0, files_removed: 0, files_to_remove: 0,
+    no_complete_copy: 0, unexplained_left: 0, no_runtime: 0, single_file: 0, failed: 0,
   };
+  const absMode = apply && (await isAudiobookshelfBackend());
   let cancelled = false;
   // Refresh the cancel flag in the background; ffmpeg's progress callback reads it synchronously
   const cancelPoll = setInterval(() => { progress.isCancelled().catch(() => {}); }, 2000);
@@ -46,52 +61,79 @@ export async function processMergeLibrary(payload: MergeLibraryPayload) {
         break;
       }
       await progress.update(index, { detail: candidate.title, cancellable: true });
+      const folder = candidate.folder!;
 
       try {
-        const check = await listMergeableParts(candidate.folder!);
-        if (!check.ok) {
-          if (check.reason === 'single_file') counts.single_file++;
-          else {
-            counts.mixed_formats++;
-            await logger.info(`Skipped "${candidate.title}": ${check.reason === 'mixed_formats' ? 'mixed formats' : 'unsupported format'} (${check.detail})`);
+        if ((await audioFileCount(folder)) < 2) {
+          counts.single_file++;
+          continue;
+        }
+
+        const { expectedMs } = await checkRuntime(0, candidate.asin);
+        await delay(LOOKUP_DELAY_MS);
+        if (!expectedMs) {
+          counts.no_runtime++;
+          await logger.info(`Skipped "${candidate.title}": no Audible runtime to check copies against`);
+          continue;
+        }
+
+        const files = await listAudioFiles(folder);
+        const plan = planFolderCleanup(files, expectedMs);
+        const name = (p: string) => path.basename(p);
+        const total = files.reduce((sum, f) => sum + (f.duration ?? 0), 0);
+
+        if (!plan.resolved) {
+          counts.no_complete_copy++;
+          await logger.warn(
+            `No complete copy found — left alone "${candidate.title}": ${files.length} file(s), ${formatDuration(total)} total ` +
+            `(Audible ${formatDuration(expectedMs)})${files.some(f => f.duration === null) ? ', some unreadable' : ''} (${folder})`
+          );
+          continue;
+        }
+
+        // 1. Duplicates
+        if (plan.remove.length > 0) {
+          const list = plan.remove.map(r => `${name(r.path)} (${r.reason})`).join(', ');
+          const kept = plan.keep.map(name).join(', ');
+          if (!apply) {
+            counts.would_clean++;
+            counts.files_to_remove += plan.remove.length;
+            await logger.info(`Would remove from "${candidate.title}": ${list} — keeping ${kept}`);
+          } else {
+            for (const item of plan.remove) await fs.unlink(item.path);
+            counts.cleaned++;
+            counts.files_removed += plan.remove.length;
+            await logger.info(`Removed from "${candidate.title}": ${list} — kept ${kept}`);
+          }
+        }
+        if (plan.unexplained.length > 0) {
+          counts.unexplained_left++;
+          await logger.warn(`Left ${plan.unexplained.length} unexplained file(s) in "${candidate.title}" (not merging): ${plan.unexplained.map(name).join(', ')}`);
+          continue;
+        }
+
+        // 2. Merge the kept copy if it's split
+        if (plan.keep.length < 2) {
+          // Tracks changed in ABS → give it the kept file's chapters
+          if (apply && plan.remove.length > 0 && absMode && candidate.absItemId) {
+            await syncFileChaptersToABS(candidate.absItemId, plan.keep[0], logger);
           }
           continue;
         }
-
-        let totalMs: number;
-        try {
-          totalMs = await totalDurationMs(check.parts);
-        } catch (error) {
-          counts.unreadable++;
-          await logger.warn(`Unreadable files in "${candidate.title}" (${candidate.folder}): ${error instanceof Error ? error.message : String(error)}`);
-          continue;
-        }
-
-        const runtime = await checkRuntime(totalMs, candidate.asin);
-        await delay(LOOKUP_DELAY_MS);
-        const lengths = `${formatDuration(totalMs)}${runtime.expectedMs ? ` (Audible ${formatDuration(runtime.expectedMs)})` : ''}`;
-        if (runtime.matches === null) {
-          counts.no_runtime++;
-          await logger.info(`Skipped "${candidate.title}": no Audible runtime to verify against — ${check.parts.length} × ${check.format}, ${lengths}`);
-          continue;
-        }
-        if (!runtime.matches) {
-          counts.length_mismatch++;
-          await logger.warn(`Length doesn't match the book — skipped "${candidate.title}": ${check.parts.length} × ${check.format}, ${lengths} (${candidate.folder})`);
-          continue;
-        }
-
-        const speed = needsReencode(check.format) ? `slow (re-encode ${check.format.slice(1).toUpperCase()} → M4B)` : 'fast (no re-encode)';
+        const format = path.extname(plan.keep[0]).toLowerCase();
+        const keptMs = files.filter(f => plan.keep.includes(f.path)).reduce((sum, f) => sum + (f.duration ?? 0), 0);
+        const speed = needsReencode(format) ? `slow (re-encode ${format.slice(1).toUpperCase()} → M4B)` : 'fast (no re-encode)';
+        const summary = `${plan.keep.length} × ${format}, ${formatDuration(keptMs)} (Audible ${formatDuration(expectedMs)}) — ${speed}`;
         if (!apply) {
           counts.would_merge++;
-          await logger.info(`Would merge "${candidate.title}": ${check.parts.length} × ${check.format}, ${lengths} — ${speed}`);
+          await logger.info(`Would merge "${candidate.title}": ${summary}`);
           continue;
         }
 
-        await logger.info(`Merging "${candidate.title}": ${check.parts.length} × ${check.format}, ${lengths} — ${speed}`);
+        await logger.info(`Merging "${candidate.title}": ${summary}`);
         const result = await mergeFolderInPlace({
-          folder: candidate.folder!,
-          parts: check.parts,
+          folder,
+          parts: plan.keep,
           meta: {
             title: candidate.title, author: candidate.author || 'Unknown Author', narrator: candidate.narrator,
             year: candidate.year, asin: candidate.asin, series: candidate.series, seriesPart: candidate.seriesPart,
@@ -124,10 +166,13 @@ export async function processMergeLibrary(payload: MergeLibraryPayload) {
   if (!cancelled) await progress.update(candidates.length);
   await progress.finish(cancelled ? 'Cancelled' : 'Done');
   await logger.info(
-    `Library merge ${cancelled ? 'cancelled' : 'complete'} — ${apply ? `merged ${counts.merged}` : `would merge ${counts.would_merge}`}, ` +
-    `length mismatch ${counts.length_mismatch}, no Audible runtime ${counts.no_runtime}, mixed/unsupported formats ${counts.mixed_formats}, ` +
-    `unreadable ${counts.unreadable}, failed ${counts.failed} (single-file books: ${counts.single_file})`
+    `Library merge ${cancelled ? 'cancelled' : 'complete'} — ` +
+    (apply
+      ? `cleaned ${counts.cleaned} book(s) (${counts.files_removed} duplicate file(s) removed), merged ${counts.merged}`
+      : `would clean ${counts.would_clean} book(s) (${counts.files_to_remove} duplicate file(s)), would merge ${counts.would_merge}`) +
+    `, no complete copy ${counts.no_complete_copy}, unexplained files left ${counts.unexplained_left}, no Audible runtime ${counts.no_runtime}, ` +
+    `failed ${counts.failed} (single-file books: ${counts.single_file})`
   );
-  if (counts.merged > 0) await triggerLibraryScan(logger);
+  if (counts.merged > 0 || counts.cleaned > 0) await triggerLibraryScan(logger);
   return { success: true, mode: apply ? 'apply' : 'report', checked: candidates.length, ...counts, ...(cancelled && CANCELLED_RESULT) };
 }
