@@ -77,6 +77,7 @@
 - **Library layout guard: book never nested inside another book (import + library job)** → [phase3/file-organization.md](phase3/file-organization.md#library-layout-guard)
 - **Scan safety: grace period, relink by ASIN, restore wrongly cancelled requests** → [backend/services/jobs.md](backend/services/jobs.md)
 - **Job progress bars, clean cancel, live job log in the web UI** → [backend/services/jobs.md](backend/services/jobs.md#live-progress--cancel-long-jobs)
+- **Library-wide merge of split books (report/apply, runtime-verified), 2-file import merges** → [features/chapter-merging.md](features/chapter-merging.md)
 - **Sync fixed chapters to Audiobookshelf (automatic + catch-up job)** → [features/chapter-merging.md](features/chapter-merging.md)
 - **Fix chapters from Audnexus (every import, per book, library-wide report/apply)** → [features/chapter-merging.md](features/chapter-merging.md#v5---fix-chapters-on-single-file-books-2026-10-08)
 - **Series & author packs (grab multi-book packs after 24h, partial download, fill out series)** → [features/series-packs.md](features/series-packs.md)

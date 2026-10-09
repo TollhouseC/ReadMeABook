@@ -15,7 +15,7 @@ const logger = RMABLogger.create('JobQueue');
 
 /** Jobs that report live progress (admin header indicator / Jobs page). */
 const LONG_JOB_TYPES: string[] = [
-  'fix_chapters', 'fix_library_layout', 'merge_library_book', 'plex_library_scan', 'scan_plex', 'check_watched_lists',
+  'fix_chapters', 'fix_library_layout', 'merge_library_book', 'merge_library', 'plex_library_scan', 'scan_plex', 'check_watched_lists',
 ];
 
 const queuedProgress = () => ({ current: 0, total: null, label: 'Queued', cancellable: true, updatedAt: new Date().toISOString() });
@@ -40,6 +40,7 @@ export type JobType =
   | 'merge_library_book'
   | 'fix_chapters'
   | 'fix_library_layout'
+  | 'merge_library'
   | 'send_notification'
   // Ebook-specific job types
   | 'search_ebook'
@@ -131,6 +132,12 @@ export interface SearchPacksPayload extends JobPayload {
 
 export interface MergeLibraryBookPayload extends JobPayload {
   requestId: string;
+}
+
+export interface MergeLibraryPayload extends JobPayload {
+  /** 'report' lists split books that would merge, 'apply' merges them */
+  mode?: 'report' | 'apply';
+  scheduledJobId?: string;
 }
 
 export interface FixLibraryLayoutPayload extends JobPayload {
@@ -468,6 +475,13 @@ export class JobQueueService {
       const { processFixChapters } = await import('../processors/fix-chapters.processor');
       const payloadWithJobId = await this.ensureJobRecord(job, 'fix_chapters');
       return await processFixChapters(payloadWithJobId);
+    });
+
+    // Concurrency 1: merges are disk/CPU heavy (mp3 → M4B re-encodes)
+    this.queue.process('merge_library', 1, async (job: BullJob<MergeLibraryPayload>) => {
+      const { processMergeLibrary } = await import('../processors/merge-library.processor');
+      const payloadWithJobId = await this.ensureJobRecord(job, 'merge_library');
+      return await processMergeLibrary(payloadWithJobId);
     });
 
     this.queue.process('fix_library_layout', 1, async (job: BullJob<FixLibraryLayoutPayload>) => {
@@ -886,6 +900,13 @@ export class JobQueueService {
    */
   async addFixChaptersJob(options: { requestId?: string; mode?: FixChaptersPayload['mode']; scheduledJobId?: string }): Promise<string> {
     return await this.addJob('fix_chapters', { ...options } as FixChaptersPayload, { priority: options.requestId ? 6 : 9 });
+  }
+
+  /**
+   * Find (report) or merge (apply) library books still split into several files
+   */
+  async addMergeLibraryJob(options: { mode?: 'report' | 'apply'; scheduledJobId?: string }): Promise<string> {
+    return await this.addJob('merge_library', { ...options } as MergeLibraryPayload, { priority: 9 });
   }
 
   /**

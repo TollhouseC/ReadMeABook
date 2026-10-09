@@ -286,6 +286,7 @@ export default function AdminLogsPage() {
               <option value="merge_library_book">Merge Library Book</option>
               <option value="fix_chapters">Fix Chapters</option>
               <option value="fix_library_layout">Fix Library Layout</option>
+              <option value="merge_library">Library Merge</option>
             </select>
           </div>
         </div>

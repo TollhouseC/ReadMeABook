@@ -82,13 +82,14 @@ describe('chapter merger', () => {
   });
 
   it('detects when chapter merging should be skipped', async () => {
-    await expect(detectChapterFiles(['one.mp3', 'two.mp3'])).resolves.toBe(false);
+    await expect(detectChapterFiles(['one.mp3'])).resolves.toBe(false);
     await expect(detectChapterFiles(['one.mp3', 'two.m4b', 'three.mp3'])).resolves.toBe(false);
     await expect(detectChapterFiles(['one.wav', 'two.wav', 'three.wav'])).resolves.toBe(false);
   });
 
-  it('detects eligible chapter files', async () => {
+  it('detects eligible chapter files (2 or more)', async () => {
     await expect(detectChapterFiles(['one.mp3', 'two.mp3', 'three.mp3'])).resolves.toBe(true);
+    await expect(detectChapterFiles(['part1.m4b', 'part2.m4b'])).resolves.toBe(true);
   });
 
   it('detects eligible .m4a chapter files', async () => {

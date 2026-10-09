@@ -84,16 +84,16 @@ export interface MergeResult {
 /**
  * Detect if the given files appear to be chapter files that should be merged
  *
- * New approach: Use simple heuristic (>3 files of same format) and rely on
+ * New approach: Use simple heuristic (2+ files of same format) and rely on
  * analyzeChapterFiles() to determine if ordering is possible via metadata or filenames.
  * This is more permissive and catches edge cases where filenames don't match patterns
  * but metadata (track numbers) provides correct ordering.
  */
 export async function detectChapterFiles(files: string[], logger?: RMABLogger): Promise<boolean> {
-  // Need at least 3 files to consider as multi-chapter audiobook
-  // (2 files might be "Book" + "Credits", so require 3+)
-  if (files.length < 3) {
-    await logger?.info(`Chapter detection: Only ${files.length} file(s) - not enough for chapter merge (minimum: 3)`);
+  // 2+ files of one book get merged; the organizer's runtime check (vs Audible) guards
+  // against merging files that don't add up to the book
+  if (files.length < 2) {
+    await logger?.info(`Chapter detection: Only ${files.length} file(s) - not enough for chapter merge (minimum: 2)`);
     return false;
   }
 

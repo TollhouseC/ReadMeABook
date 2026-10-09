@@ -10,7 +10,7 @@ import { RMABLogger } from '../utils/logger';
 
 const logger = RMABLogger.create('Scheduler');
 
-export type ScheduledJobType = 'plex_library_scan' | 'plex_recently_added_check' | 'audible_refresh' | 'retry_missing_torrents' | 'retry_failed_imports' | 'cleanup_seeded_torrents' | 'monitor_rss_feeds' | 'sync_reading_shelves' | 'check_watched_lists' | 'check_stalled_downloads' | 'chapter_check_report' | 'chapter_check_apply' | 'library_layout_report' | 'library_layout_apply' | 'chapter_sync_report' | 'chapter_sync_apply';
+export type ScheduledJobType = 'plex_library_scan' | 'plex_recently_added_check' | 'audible_refresh' | 'retry_missing_torrents' | 'retry_failed_imports' | 'cleanup_seeded_torrents' | 'monitor_rss_feeds' | 'sync_reading_shelves' | 'check_watched_lists' | 'check_stalled_downloads' | 'chapter_check_report' | 'chapter_check_apply' | 'library_layout_report' | 'library_layout_apply' | 'chapter_sync_report' | 'chapter_sync_apply' | 'library_merge_report' | 'library_merge_apply';
 
 export interface ScheduledJob {
   id: string;
@@ -179,6 +179,22 @@ export class SchedulerService {
         name: 'Chapter Sync to Audiobookshelf (Apply)',
         type: 'chapter_sync_apply' as ScheduledJobType,
         schedule: '0 4 2 * *', // Monthly if enabled
+        enabled: false,
+        payload: {},
+      },
+      {
+        // Run manually: lists library books still split into several files
+        name: 'Library Merge Check (Report Only)',
+        type: 'library_merge_report' as ScheduledJobType,
+        schedule: '0 3 3 * *', // Monthly if enabled
+        enabled: false,
+        payload: {},
+      },
+      {
+        // Run manually: merges each into one M4B (mp3 → M4B), runtime-verified
+        name: 'Library Merge (Apply)',
+        type: 'library_merge_apply' as ScheduledJobType,
+        schedule: '0 3 3 * *', // Monthly if enabled
         enabled: false,
         payload: {},
       },
@@ -448,6 +464,13 @@ export class SchedulerService {
         break;
       case 'check_stalled_downloads':
         bullJobId = await this.triggerCheckStalledDownloads(job);
+        break;
+      case 'library_merge_report':
+      case 'library_merge_apply':
+        bullJobId = await this.jobQueue.addMergeLibraryJob({
+          mode: job.type === 'library_merge_apply' ? 'apply' : 'report',
+          scheduledJobId: job.id,
+        });
         break;
       case 'library_layout_report':
       case 'library_layout_apply':

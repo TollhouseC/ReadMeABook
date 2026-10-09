@@ -23,6 +23,7 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
   check_stalled_downloads: 'Check Stalled Downloads',
   search_packs: 'Pack Search',
   merge_library_book: 'Merge into Single M4B',
+  merge_library: 'Library Merge',
   fix_chapters: 'Chapter Check / Fix',
   fix_library_layout: 'Library Layout Check / Fix',
   send_notification: 'Send Notification',

@@ -23,6 +23,7 @@ import { prisma } from '../db';
 import { substituteTemplate, buildRenamedFilename, type TemplateVariables } from './path-template.util';
 import { applyVersionLabel } from './book-versions';
 import { resolveCollisionFreeTarget } from './library-layout';
+import { checkRuntime } from '../services/library-merge.service';
 import { AUDIO_EXTENSIONS } from '../constants/audio-formats';
 
 export interface AudiobookMetadata {
@@ -197,9 +198,17 @@ export class FileOrganizer {
                 // Analyze and order chapter files
                 const chapters = await analyzeChapterFiles(sourceFilePaths, logger ?? undefined);
 
+                // Files must add up to the book (Audible runtime); unknown runtime → trust the download
+                const totalMs = chapters.reduce((sum, c) => sum + c.duration, 0);
+                const runtime = chapters.length > 0 ? await checkRuntime(totalMs, audiobook.asin) : { matches: null, expectedMs: null };
+
                 // Validate that we have valid ordering
                 if (chapters.length === 0) {
                   await logger?.warn(`Chapter analysis failed: No valid chapters found. Organizing files individually.`);
+                } else if (runtime.matches === false) {
+                  await logger?.warn(
+                    `Files total ${Math.round(totalMs / 60000)} min but the book is ${Math.round((runtime.expectedMs ?? 0) / 60000)} min on Audible — not merging. Organizing files individually.`
+                  );
                 } else {
                   // Create output path in temp directory
                   const outputFilename = `${this.sanitizePath(audiobook.title)}.m4b`;

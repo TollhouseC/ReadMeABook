@@ -35,6 +35,22 @@ export interface Candidate {
   absItemId?: string;
   /** Chapter count Audiobookshelf shows (from the library listing), when available */
   absChapterCount?: number;
+  /** ReadMeABook audiobook record, when imported by ReadMeABook */
+  audiobookId?: string;
+  /** Tag/naming metadata (used by the library merge job) */
+  author?: string;
+  narrator?: string;
+  series?: string;
+  seriesPart?: string;
+  year?: number;
+}
+
+/** "Mistborn #2, Cosmere #5" → first series name + position */
+function parseAbsSeries(seriesName?: string): { series?: string; seriesPart?: string } {
+  const first = (seriesName || '').split(',')[0].trim();
+  if (!first) return {};
+  const match = first.match(/^(.*?)\s*#\s*([\d.]+)\s*$/);
+  return match ? { series: match[1].trim(), seriesPart: match[2] } : { series: first };
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -130,9 +146,16 @@ async function collectAudiobookshelfCandidates(
     }
     const title = item.media?.metadata?.title || path.basename(local);
     const absChapterCount = typeof item.media?.numChapters === 'number' ? item.media.numChapters : undefined;
-    add(item.isFile
-      ? { title, asin, file: local, absItemId: item.id, absChapterCount }
-      : { title, asin, folder: local, absItemId: item.id, absChapterCount });
+    const metadata = item.media?.metadata ?? {};
+    const year = parseInt(metadata.publishedYear, 10);
+    const details = {
+      title, asin, absItemId: item.id, absChapterCount,
+      author: metadata.authorName || undefined,
+      narrator: metadata.narratorName || undefined,
+      year: Number.isFinite(year) ? year : undefined,
+      ...parseAbsSeries(metadata.seriesName),
+    };
+    add(item.isFile ? { ...details, file: local } : { ...details, folder: local });
   }
 
   await logger.info(
@@ -153,6 +176,8 @@ export async function collectCandidates(mediaDir: string, logger: RMABLogger): P
       // Same book seen as an import and as an ABS item — keep the ABS details
       existing.absItemId ??= candidate.absItemId;
       existing.absChapterCount ??= candidate.absChapterCount;
+      existing.series ??= candidate.series;
+      existing.seriesPart ??= candidate.seriesPart;
       return;
     }
     byKey.set(key, candidate);
@@ -167,7 +192,11 @@ export async function collectCandidates(mediaDir: string, logger: RMABLogger): P
   for (const book of books as BookRecord[]) {
     const folder = await resolveBookFolder(book, mediaDir);
     if (!folder || !book.audibleAsin) continue;
-    add({ title: book.title, asin: book.audibleAsin, folder, absItemId: book.absItemId || undefined });
+    add({
+      title: book.title, asin: book.audibleAsin, folder, absItemId: book.absItemId || undefined, audiobookId: book.id,
+      author: book.author, narrator: book.narrator || undefined, series: book.series || undefined,
+      seriesPart: book.seriesPart || undefined, year: book.year || undefined,
+    });
     if (book.absItemId) importedPairs.push({ absItemId: book.absItemId, localPath: folder });
   }
 

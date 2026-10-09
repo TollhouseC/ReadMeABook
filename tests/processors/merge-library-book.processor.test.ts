@@ -18,8 +18,11 @@ const mergerMock = vi.hoisted(() => ({
   mergeChapters: vi.fn(),
   checkDiskSpace: vi.fn(),
   estimateOutputSize: vi.fn(),
+  probeAudioFile: vi.fn(),
   MERGE_CANCELLED: 'Cancelled by admin',
 }));
+const runtimeMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/integrations/audible.service', () => ({ getAudibleService: () => ({ getRuntime: runtimeMock }) }));
 const getABSItemMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/db', () => ({ prisma: prismaMock }));
@@ -66,6 +69,8 @@ beforeEach(async () => {
   configMock.getBackendMode.mockResolvedValue('audiobookshelf');
 
   mergerMock.estimateOutputSize.mockResolvedValue(10);
+  mergerMock.probeAudioFile.mockResolvedValue({ duration: 1000, format: 'mp4' });
+  runtimeMock.mockResolvedValue(null);
   mergerMock.checkDiskSpace.mockResolvedValue(1_000_000);
   mergerMock.analyzeChapterFiles.mockImplementation(async (paths: string[]) =>
     paths.map(p => ({ path: p, filename: path.basename(p), duration: 1000, chapterTitle: path.basename(p) })));

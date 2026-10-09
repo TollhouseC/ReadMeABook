@@ -100,6 +100,10 @@ const layoutMock = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/utils/library-layout', () => layoutMock);
 
+// Runtime check vs Audible: unknown by default (merge proceeds)
+const runtimeMock = vi.hoisted(() => ({ checkRuntime: vi.fn(async () => ({ matches: null, expectedMs: null })) }));
+vi.mock('@/lib/services/library-merge.service', () => runtimeMock);
+
 describe('file organizer', () => {
   const originalEnv = { ...process.env };
 
@@ -359,6 +363,37 @@ describe('file organizer', () => {
     expect(result.filesMovedCount).toBe(2);
     expect(result.errors.join(' ')).toContain('Chapter merge failed');
     expect(chapterMock.mergeChapters).toHaveBeenCalled();
+  });
+
+  it('does not merge files whose total length does not match the book', async () => {
+    configState.values.set('chapter_merging_enabled', 'true');
+    configState.values.set('metadata_tagging_enabled', 'false');
+    configState.values.set('ebook_sidecar_enabled', 'false');
+    chapterMock.detectChapterFiles.mockResolvedValue(true);
+    chapterMock.estimateOutputSize.mockResolvedValue(100);
+    chapterMock.checkDiskSpace.mockResolvedValue(1000);
+    chapterMock.analyzeChapterFiles.mockResolvedValue([
+      { path: '/downloads/book/p1.m4b', filename: 'p1.m4b', duration: 3_600_000, chapterTitle: 'One' },
+      { path: '/downloads/book/p2.m4b', filename: 'p2.m4b', duration: 3_600_000, chapterTitle: 'Two' },
+    ]);
+    runtimeMock.checkRuntime.mockResolvedValueOnce({ matches: false, expectedMs: 20 * 3_600_000 });
+    const downloadRoot = path.normalize(path.join('/downloads', 'book'));
+    fsMock.access.mockImplementation(async (filePath: string) => {
+      if (path.normalize(filePath).startsWith(downloadRoot)) return undefined;
+      throw new Error('missing');
+    });
+    fsMock.mkdir.mockResolvedValue(undefined);
+    copyFileMock.copyFile.mockResolvedValue(undefined);
+    fsMock.chmod.mockResolvedValue(undefined);
+
+    const organizer = new FileOrganizer('/media', '/tmp');
+    (organizer as any).findAudiobookFiles = vi.fn().mockResolvedValue({ audioFiles: ['p1.m4b', 'p2.m4b'], coverFile: undefined, isFile: false });
+    const result = await organizer.organize('/downloads/book', { title: 'Book', author: 'Author', asin: 'B0X' }, '{author}/{title}');
+
+    expect(runtimeMock.checkRuntime).toHaveBeenCalledWith(7_200_000, 'B0X');
+    expect(chapterMock.mergeChapters).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(result.filesMovedCount).toBe(2);
   });
 
   it('uses tagged files when metadata tagging succeeds', async () => {

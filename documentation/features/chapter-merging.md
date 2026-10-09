@@ -8,6 +8,12 @@ Automatically merge multi-file audiobook downloads (separate MP3/M4A files per c
 
 ## Recent Updates
 
+### v7 - Library-Wide Merge + 2-File Imports (2026-10-09)
+
+- **Shared core:** `src/lib/services/library-merge.service.ts` → `listMergeableParts(folder)` (≥2 top-level audio files, same format in `CHAPTER_MERGE_FORMATS`; natural order), `totalDurationMs`, `checkRuntime(totalMs, asin)` (Audible/Audnexus runtime, tolerance max(3%, 2 min); null = unknown), `mergeFolderInPlace(...)` (temp merge → tag → `.partial` copy → size check → rename → delete parts → update Audiobook file info → push chapters to ABS). Used by the per-book Merge action (runtime mismatch = warning only) and the library job.
+- **Library job:** Jobs page → "Library Merge Check (Report Only)" / "Library Merge (Apply)" (`library_merge_report|apply` → `merge_library` job, `src/lib/processors/merge-library.processor.ts`). Candidates = chapter-check set (RMAB imports + reachable ABS items) with folders. Merges only when the runtime matches; skips/logs: length mismatch, no Audible runtime, mixed/unsupported formats, unreadable files. MP3/M4A → AAC M4B (re-encode, flagged "slow"); M4B → codec copy ("fast"). Log: `Would merge "Title": N × .ext, 31h 2m (Audible 31h 0m) — fast (no re-encode)`. 1s Audnexus throttle; cancel between books or mid-ffmpeg (parts untouched); one library scan at the end. Candidate metadata (author/narrator/series/year) from the Audiobook record or ABS item (`seriesName` "Name #N").
+- **Imports:** `detectChapterFiles` minimum is now **2** files (was 3). Organizer checks the parts' total vs the Audible runtime before merging: mismatch → no merge (files organized individually, logged); unknown runtime → merge.
+
 ### v6 - Sync Chapters to Audiobookshelf (2026-10-09)
 
 ABS keeps its own chapter list (DB + `metadata.json` with "Store metadata with item" — which wins over the audio file on rescan), so fixed files kept showing old chapters in ABS.
@@ -110,7 +116,7 @@ Detect multi-file chapter downloads and merge into single M4B with embedded chap
 Detection now uses a **permissive heuristic** instead of strict filename pattern matching:
 
 **Trigger Conditions:**
-- 3+ audio files in download (2 files might be "Book + Credits", so require 3+)
+- 2+ audio files in download (total length must match the Audible runtime when known)
 - All files same format (m4a, m4b, mp3, etc.)
 - Feature enabled in config
 
