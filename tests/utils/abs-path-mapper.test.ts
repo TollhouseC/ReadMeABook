@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { learnPrefixMappings, localPathCandidates, resolveLocalPath } from '@/lib/utils/abs-path-mapper';
+import { learnPrefixMappings, localPathCandidates, mountMappingsFromRelPaths, resolveLocalPath } from '@/lib/utils/abs-path-mapper';
 
 describe('learnPrefixMappings', () => {
   it('derives the mount prefixes from known path pairs, most common first', () => {
@@ -23,6 +23,20 @@ describe('learnPrefixMappings', () => {
       { absPath: '/Audiobooks/Audio/A/B', localPath: '/Audiobooks/Audio/A/B' },
       { absPath: '/x/Book One', localPath: '/y/Book Two' },
     ])).toEqual([]);
+  });
+});
+
+describe('mountMappingsFromRelPaths', () => {
+  it('learns only the real mount, ignoring pairs that point at another copy of the book', () => {
+    expect(mountMappingsFromRelPaths([
+      { absPath: '/audiobooks/Glen Cook/They Cry', relPath: 'Glen Cook/They Cry', localPath: '/Audiobooks/Audio/Glen Cook/They Cry' },
+      // RMAB record points at the "Last, First" folder; ABS item is the "First Last" copy
+      {
+        absPath: '/audiobooks/Travis Deverell Shirtaloon/HWFwM/HWFwM 10', relPath: 'Travis Deverell Shirtaloon/HWFwM/HWFwM 10',
+        localPath: '/Audiobooks/Audio/Shirtaloon, Travis Deverell/HWFwM/HWFwM 10',
+      },
+      { absPath: '/audiobooks/A/B', localPath: '/Audiobooks/Audio/A/B' }, // no relPath
+    ])).toEqual([{ from: '/audiobooks', to: '/Audiobooks/Audio' }]);
   });
 });
 

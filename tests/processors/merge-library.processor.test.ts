@@ -99,7 +99,7 @@ describe('processMergeLibrary', () => {
     expect(result).toMatchObject({ mode: 'apply', cleaned: 2, files_removed: 2, merged: 1, unexplained_left: 1 });
 
     expect(await fs.readdir(path.join(root, 'Halo'))).toEqual(['Halo.m4b']);
-    expect(await fs.readdir(path.join(root, 'Empire'))).toEqual(['Empire - 01.m4b']);
+    expect(await fs.readdir(path.join(root, 'Empire'))).toEqual(['Empire.m4b']); // leftover numbering cleaned up
     expect((await fs.readdir(path.join(root, 'Mixed'))).sort()).toEqual(['Book.m4b', 'Other.m4b']);
     expect(mocks.syncFileChaptersToABS).toHaveBeenCalledWith('abs-halo', path.join(root, 'Halo', 'Halo.m4b'), expect.anything());
     expect(mocks.mergeFolderInPlace).toHaveBeenCalledTimes(1);
@@ -108,6 +108,28 @@ describe('processMergeLibrary', () => {
       parts: [path.join(root, 'Ender', 'Ender - 1.mp3'), path.join(root, 'Ender', 'Ender - 2.mp3')],
     }));
     expect(mocks.triggerLibraryScan).toHaveBeenCalledTimes(1);
+  });
+
+  it('same book in two folders (author written two ways): removes a same-length copy, alerts on a different-length one', async () => {
+    const good = await book('Shirtaloon, Travis Deverell/HWFwM 10', { 'HWFwM 10.m4b': 10 });
+    const sameLen = await book('Travis Deverell Shirtaloon/HWFwM 10', { 'HWFwM 10.m4a': 10 });
+    await fs.writeFile(path.join(sameLen, 'cover.jpg'), 'img');
+    const broken = await book('Shirtaloon/HWFwM 10', { 'HWFwM 10 - 01.m4b': 7, 'HWFwM 10 - 02.m4b': 0.3 });
+    mocks.collectCandidates.mockResolvedValue([
+      { title: 'HWFwM 10', asin: 'B0HW', folder: good },
+      { title: 'HWFwM 10', asin: 'B0HW', folder: sameLen },
+      { title: 'HWFwM 10', asin: 'B0HW', folder: broken },
+    ]);
+
+    const report = await run('report');
+    expect(report).toMatchObject({ folders_to_remove: 1, different_length_alerts: 1, folders_removed: 0 });
+    expect(await fs.readdir(sameLen)).toHaveLength(2);
+
+    const result = await run('apply');
+    expect(result).toMatchObject({ folders_removed: 1, different_length_alerts: 1 });
+    await expect(fs.stat(sameLen)).rejects.toThrow(); // folder gone (audio + cover)
+    expect((await fs.readdir(broken)).sort()).toEqual(['HWFwM 10 - 01.m4b', 'HWFwM 10 - 02.m4b']); // never deleted
+    expect(await fs.readdir(good)).toEqual(['HWFwM 10.m4b']);
   });
 
   it('leaves folders alone when no complete copy matches the book', async () => {

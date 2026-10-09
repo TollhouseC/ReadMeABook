@@ -10,9 +10,11 @@
  * Only clearly redundant files are removed:
  *   - another complete single-file copy,
  *   - a complete duplicate set of parts (same format + naming, total ≈ runtime),
+ *   - another copy of the same recording (same length as the kept file, even when Audible
+ *     lists a different edition length),
  *   - unreadable files (only when a readable complete copy is kept).
- * Anything else ("unexplained" audio, which could be a different book) is left in place,
- * and the folder is then not merged.
+ * Anything else — e.g. a copy with a different length (another edition) or audio that could
+ * be a different book — is never deleted; it's reported, and the folder is not merged.
  */
 
 import fs from 'fs/promises';
@@ -81,6 +83,23 @@ export async function listAudioFiles(folder: string): Promise<AudioFileInfo[]> {
   return files.sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
 }
 
+/** Within max(1%, 1 min) of each other = the same recording */
+export const sameLength = (a: number, b: number) => Math.abs(a - b) <= Math.max(60_000, Math.max(a, b) * 0.01);
+
+/**
+ * Largest group of single files that are full-length (≥ half the Audible runtime) and the
+ * same length as each other.
+ */
+function sameRecordingCopies(readable: AudioFileInfo[], expectedMs: number): AudioFileInfo[] {
+  const full = readable.filter(f => f.duration! >= expectedMs * 0.5);
+  let best: AudioFileInfo[] = [];
+  for (const anchor of full) {
+    const group = full.filter(f => sameLength(f.duration!, anchor.duration!));
+    if (group.length > best.length) best = group;
+  }
+  return best;
+}
+
 interface CopyOption {
   files: AudioFileInfo[];
   kind: 'single' | 'set';
@@ -104,6 +123,13 @@ export function planFolderCleanup(files: AudioFileInfo[], expectedMs: number): C
     if (set.length >= 2 && matchesRuntime(set.reduce((sum, f) => sum + f.duration!, 0), expectedMs)) {
       options.push({ files: set, kind: 'set' });
     }
+  }
+
+  // No copy matches Audible (e.g. a different edition), but two+ full-length files match
+  // EACH OTHER → copies of the same recording
+  if (options.length === 0) {
+    const twins = sameRecordingCopies(readable, expectedMs);
+    if (twins.length >= 2) options.push(...twins.map(f => ({ files: [f], kind: 'single' as const })));
   }
 
   if (options.length === 0) {

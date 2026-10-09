@@ -21,7 +21,7 @@ import type { FixChaptersPayload } from '../services/job-queue.service';
 import { AUDIO_EXTENSIONS } from '../constants/audio-formats';
 import { fixChaptersIfBetter, findSingleAudioFile, type ChapterFixStatus } from '../utils/chapter-fixer';
 import { resolveBookFolder, triggerLibraryScan, type BookRecord } from '../utils/library-book-files';
-import { learnPrefixMappings, localPathCandidates, resolveLocalPath } from '../utils/abs-path-mapper';
+import { localPathCandidates, mountMappingsFromRelPaths, resolveLocalPath } from '../utils/abs-path-mapper';
 
 const LOOKUP_DELAY_MS = 1000;
 
@@ -122,8 +122,11 @@ async function collectAudiobookshelfCandidates(
 
   // Learn ABS→local mount prefixes from books whose both paths are known
   const itemsById = new Map(items.map(item => [item.id, item]));
-  const mappings = learnPrefixMappings(importedPairs
-    .map(pair => ({ absPath: itemsById.get(pair.absItemId)?.path as string, localPath: pair.localPath }))
+  const mappings = mountMappingsFromRelPaths(importedPairs
+    .map(pair => {
+      const item = itemsById.get(pair.absItemId);
+      return { absPath: item?.path as string, relPath: item?.relPath as string | undefined, localPath: pair.localPath };
+    })
     .filter(pair => !!pair.absPath));
 
   let noAsin = 0;

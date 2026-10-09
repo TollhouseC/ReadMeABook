@@ -61,6 +61,20 @@ describe('planFolderCleanup', () => {
     expect(names(plan.unexplained)).toEqual(['Other Book.m4b']);
   });
 
+  it('two copies of the same recording count as duplicates even if Audible lists another length', () => {
+    // Ender's Game: both ~11h11m, Audible 11h57m (different edition) → same recording twice
+    const plan = planFolderCleanup([f("Ender's Game.m4a", 11.18), f("Ender's Game.m4b", 11.19)], 11.95 * H);
+    expect(names(plan.keep)).toEqual(["Ender's Game.m4b"]);
+    expect(names(plan.remove.map(r => r.path))).toEqual(["Ender's Game.m4a"]);
+  });
+
+  it('copies of different lengths are never removed', () => {
+    const plan = planFolderCleanup([f('The Hobbit.m4a', 4), f('The Hobbit.m4b', 14)], BOOK);
+    expect(names(plan.keep)).toEqual(['The Hobbit.m4b']);
+    expect(plan.remove).toEqual([]);
+    expect(names(plan.unexplained)).toEqual(['The Hobbit.m4a']);
+  });
+
   it('a normal split book (one set of parts) has nothing to remove', () => {
     const plan = planFolderCleanup([f('Ender - 1.mp3', 7), f('Ender - 2.mp3', 7)], BOOK);
     expect(plan).toMatchObject({ resolved: true, remove: [], unexplained: [] });

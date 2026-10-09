@@ -24,9 +24,24 @@ import { listAudioFiles, planFolderCleanup } from '../services/library-dedupe.se
 import { isAudiobookshelfBackend, syncFileChaptersToABS } from '../services/abs-chapter-sync';
 import { AUDIO_EXTENSIONS } from '../constants/audio-formats';
 import { collectCandidates, getMediaDir } from './fix-chapters.processor';
+import { handleCrossFolderDuplicates } from './merge-library-cross';
 
 const LOOKUP_DELAY_MS = 1000;
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+
+/** "Howling Dark - 02.m4b" → "Howling Dark.m4b" when that name is free (after clean-up). */
+async function cleanName(file: string): Promise<string | null> {
+  const ext = path.extname(file);
+  const match = path.basename(file, ext).match(/^(.*?)\s*-\s*\d+$/);
+  if (!match) return null;
+  const target = path.join(path.dirname(file), `${match[1]}${ext}`);
+  try {
+    await fs.stat(target);
+    return null; // taken
+  } catch {
+    return target;
+  }
+}
 
 async function audioFileCount(folder: string): Promise<number> {
   const entries = await fs.readdir(folder, { withFileTypes: true });
@@ -47,7 +62,16 @@ export async function processMergeLibrary(payload: MergeLibraryPayload) {
   const counts = {
     merged: 0, would_merge: 0, cleaned: 0, would_clean: 0, files_removed: 0, files_to_remove: 0,
     no_complete_copy: 0, unexplained_left: 0, no_runtime: 0, single_file: 0, failed: 0,
+    folders_removed: 0, folders_to_remove: 0, different_length_alerts: 0,
   };
+
+  // Same book in several folders (e.g. author written "Last, First" vs "First Last")
+  await progress.update(0, { label: `${label} — duplicates across folders`, force: true });
+  const cross = await handleCrossFolderDuplicates(candidates, { apply, logger, throttle: () => delay(LOOKUP_DELAY_MS) });
+  counts.folders_removed = cross.foldersRemoved;
+  counts.folders_to_remove = cross.foldersToRemove;
+  counts.different_length_alerts += cross.alerts;
+  await progress.update(0, { label, force: true });
   const absMode = apply && (await isAudiobookshelfBackend());
   let cancelled = false;
   // Refresh the cancel flag in the background; ffmpeg's progress callback reads it synchronously
@@ -62,6 +86,7 @@ export async function processMergeLibrary(payload: MergeLibraryPayload) {
       }
       await progress.update(index, { detail: candidate.title, cancellable: true });
       const folder = candidate.folder!;
+      if (cross.skipFolders.has(path.resolve(folder))) continue; // handled (or reported) above
 
       try {
         if ((await audioFileCount(folder)) < 2) {
@@ -108,15 +133,34 @@ export async function processMergeLibrary(payload: MergeLibraryPayload) {
         }
         if (plan.unexplained.length > 0) {
           counts.unexplained_left++;
-          await logger.warn(`Left ${plan.unexplained.length} unexplained file(s) in "${candidate.title}" (not merging): ${plan.unexplained.map(name).join(', ')}`);
+          counts.different_length_alerts++;
+          const describe = (p: string) => {
+            const info = files.find(f => f.path === p);
+            return `${name(p)} (${info?.duration ? formatDuration(info.duration) : 'unreadable'})`;
+          };
+          await logger.warn(
+            `Other copies with a different length in "${candidate.title}" — not deleted: ${plan.unexplained.map(describe).join(', ')}; ` +
+            `keeping ${plan.keep.map(describe).join(', ')} (Audible ${formatDuration(expectedMs)})`
+          );
           continue;
         }
 
         // 2. Merge the kept copy if it's split
         if (plan.keep.length < 2) {
+          let kept = plan.keep[0];
+          // Leftover numbering on the one file kept: "Title - 02.m4b" → "Title.m4b"
+          const renamed = plan.remove.length > 0 ? await cleanName(kept) : null;
+          if (renamed) {
+            if (!apply) await logger.info(`Would rename "${name(kept)}" → "${name(renamed)}"`);
+            else {
+              await fs.rename(kept, renamed);
+              await logger.info(`Renamed "${name(kept)}" → "${name(renamed)}"`);
+              kept = renamed;
+            }
+          }
           // Tracks changed in ABS → give it the kept file's chapters
           if (apply && plan.remove.length > 0 && absMode && candidate.absItemId) {
-            await syncFileChaptersToABS(candidate.absItemId, plan.keep[0], logger);
+            await syncFileChaptersToABS(candidate.absItemId, kept, logger);
           }
           continue;
         }
@@ -170,9 +214,11 @@ export async function processMergeLibrary(payload: MergeLibraryPayload) {
     (apply
       ? `cleaned ${counts.cleaned} book(s) (${counts.files_removed} duplicate file(s) removed), merged ${counts.merged}`
       : `would clean ${counts.would_clean} book(s) (${counts.files_to_remove} duplicate file(s)), would merge ${counts.would_merge}`) +
-    `, no complete copy ${counts.no_complete_copy}, unexplained files left ${counts.unexplained_left}, no Audible runtime ${counts.no_runtime}, ` +
+    `, ${apply ? `duplicate folders removed ${counts.folders_removed}` : `duplicate folders to remove ${counts.folders_to_remove}`}` +
+    `, different-length copies (alerts, not deleted) ${counts.different_length_alerts}` +
+    `, no complete copy ${counts.no_complete_copy}, no Audible runtime ${counts.no_runtime}, ` +
     `failed ${counts.failed} (single-file books: ${counts.single_file})`
   );
-  if (counts.merged > 0 || counts.cleaned > 0) await triggerLibraryScan(logger);
+  if (counts.merged > 0 || counts.cleaned > 0 || counts.folders_removed > 0) await triggerLibraryScan(logger);
   return { success: true, mode: apply ? 'apply' : 'report', checked: candidates.length, ...counts, ...(cancelled && CANCELLED_RESULT) };
 }

@@ -18,6 +18,11 @@ Automatically merge multi-file audiobook downloads (separate MP3/M4A files per c
   - Remove only: other complete single copies ("duplicate full copy"), other complete sets ("duplicate set of parts"), unreadable files (only when a readable complete copy is kept).
   - Audio not explained as a duplicate is left in place ("unexplained") and the folder is not merged; no complete copy → folder left alone.
   - After removal: kept copy split → merged; single file → its chapters pushed to ABS. Library scan at the end if anything changed.
+  - **Same recording twice:** if no copy matches Audible (other edition), full-length files within max(1%, 1 min) of each other are duplicates of one recording → best kept, others removed.
+  - **Different-length copies are never deleted** — logged as `Other copies with a different length in "Title" — not deleted: X (4h 2m); keeping Y (14h 5m)`, folder not merged.
+  - **Clean name:** after clean-up, a kept `Title - 02.m4b` is renamed `Title.m4b` when free.
+  - **Across folders** (`src/lib/processors/merge-library-cross.ts`, runs first): candidates grouped by ASIN (so `Shirtaloon, Travis Deverell/…` and `Travis Deverell Shirtaloon/…` match). Best complete copy kept; another folder is removed (audio + cover/metadata.json/opf…, then the folder if empty) only if it holds a clean complete copy of the **same length** and its folder name matches; otherwise an alert (`Another copy of "Title" with a different length — not deleted: …`). Those folders are skipped by the per-folder pass.
+- **ABS path mapping:** learned only via `mountMappingsFromRelPaths` (ABS path and local folder must both end with the item's `relPath`) — pairs where RMAB points at another copy of the book no longer produce bogus mappings.
   - Log: `Would remove from "Title": Book.m4a (duplicate full copy) — keeping Book.m4b`; summary counts cleaned / files removed / merged / no complete copy / unexplained / no runtime.
 - **Imports:** `detectChapterFiles` minimum is now **2** files (was 3). Organizer checks the parts' total vs the Audible runtime before merging: mismatch → no merge (files organized individually, logged); unknown runtime → merge.
 

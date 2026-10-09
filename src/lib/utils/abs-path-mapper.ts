@@ -44,6 +44,30 @@ export function learnPrefixMappings(pairs: Array<{ absPath: string; localPath: s
   return [...counts.values()].sort((a, b) => b.count - a.count).map(e => e.mapping);
 }
 
+/**
+ * Mount mappings from items whose ABS path and local folder are both known: both must end
+ * with the item's relPath (path inside the ABS library folder); what's before it on each
+ * side is the mount. Pairs where the local folder is a different copy of the book (e.g.
+ * another author-name folder) don't end with the relPath and are ignored.
+ */
+export function mountMappingsFromRelPaths(pairs: Array<{ absPath: string; relPath?: string; localPath: string }>): PrefixMapping[] {
+  const counts = new Map<string, { mapping: PrefixMapping; count: number }>();
+  for (const pair of pairs) {
+    if (!pair.relPath) continue;
+    const rel = `/${toPosix(pair.relPath).replace(/^\/+/, '')}`;
+    const abs = toPosix(pair.absPath);
+    const local = toPosix(pair.localPath);
+    if (!abs.endsWith(rel) || !local.endsWith(rel)) continue;
+    const mapping = { from: abs.slice(0, -rel.length) || '/', to: local.slice(0, -rel.length) || '/' };
+    if (mapping.from === mapping.to) continue;
+    const key = `${mapping.from}|${mapping.to}`;
+    const entry = counts.get(key);
+    if (entry) entry.count++;
+    else counts.set(key, { mapping, count: 1 });
+  }
+  return [...counts.values()].sort((a, b) => b.count - a.count).map(e => e.mapping);
+}
+
 function isInside(child: string, parent: string): boolean {
   const relative = path.posix.relative(toPosix(parent), toPosix(child));
   return !!relative && !relative.startsWith('..') && !path.posix.isAbsolute(relative);
