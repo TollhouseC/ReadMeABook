@@ -829,6 +829,11 @@ export class QBittorrentService implements IDownloadClient {
     }
   }
 
+  /** File paths in a torrent (IDownloadClient.getDownloadFiles) */
+  async getDownloadFiles(id: string): Promise<string[]> {
+    return (await this.getFiles(id)).map((f) => f.name);
+  }
+
   /**
    * Get all configured categories from qBittorrent
    */

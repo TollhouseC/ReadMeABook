@@ -37,6 +37,9 @@ vi.mock('@/lib/services/job-queue.service', () => ({
   getJobQueueService: () => jobQueueMock,
 }));
 
+const ownFilesMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/utils/torrent-own-files', () => ({ selectTorrentOwnFiles: ownFilesMock }));
+
 const fixChaptersMock = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/utils/chapter-fixer', () => ({
   fixChaptersIfBetter: fixChaptersMock,
@@ -161,6 +164,19 @@ describe('processOrganizeFiles', () => {
       await expect(processOrganizeFiles({ requestId: 'req-hd', audiobookId: 'ab-hd', downloadPath: '/downloads/Sun Eater Pack', jobId: 'job-e' }))
         .rejects.toThrow(/refusing to import the whole pack/);
       expect(organizerMock.organize).not.toHaveBeenCalled();
+    });
+
+    it('imports only the torrent own files when its download folder is shared', async () => {
+      setup();
+      const download = { packFiles: null, torrentName: 'Howling Dark (The Sun Eater, 2)', downloadClient: 'qbittorrent', downloadClientId: 'hash-hd', torrentHash: 'hash-hd' };
+      prismaMock.downloadHistory.findFirst.mockResolvedValue(download);
+      ownFilesMock.mockResolvedValueOnce(['Howling Dark.m4b']);
+
+      const { processOrganizeFiles } = await import('@/lib/processors/organize-files.processor');
+      await processOrganizeFiles({ requestId: 'req-hd', audiobookId: 'ab-hd', downloadPath: '/downloads/Sun Eater (Christopher Ruocchio)', jobId: 'job-s' });
+
+      expect(ownFilesMock).toHaveBeenCalledWith('/downloads/Sun Eater (Christopher Ruocchio)', download, expect.anything());
+      expect(organizerMock.organize.mock.calls[0][5]).toEqual(['Howling Dark.m4b']);
     });
 
     it('uses an explicit file list as given, and leaves normal downloads unfiltered', async () => {

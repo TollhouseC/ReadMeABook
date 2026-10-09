@@ -12,6 +12,13 @@ Evaluates and scores torrents to automatically select best audiobook download.
 - **Callers:** search-indexers + search-ebook processors (log removed count), pack-search service, interactive audiobook routes (`languageFiltered` in response → modal shows "N hidden (other language)"), interactive ebook routes (filter only).
 - Constants: `src/lib/constants/release-languages.ts` (client-safe).
 
+## Series Book Number Guard
+- **Why:** every HWFwM title ends in "A LitRPG Adventure" → book 1's request auto-picked the Book 4 release.
+- **Detection** (`src/lib/utils/series-number.ts` → `detectSeriesNumbers(title, series)`): `Book 4` / `Bk 4` / `Vol. 4` / `Tome|Band 4` / `#4` / `Book Four` / series name + number (`(The Sun Eater, 2)`, `HWFwM 4 …`, `Sun Eater 05`); ranges `Books 1-7`. Scene separators (`Book.4`) handled; `Part N`, bitrates, years (4 digits), `Audiobook 1` ignored.
+- **Rule** (`wrongSeriesBook`, `filterWrongSeriesBook`): needs `Audiobook.seriesPart` (numeric; "Book 1"/"01"/"1.5" ok, ranges skipped). Reject when the title names numbers but not the requested one and no range includes it. Numbers in the requested book's own title ignored ("Binding 13", "HWFwM 10"). No number → kept.
+- **Applied:** automatic search only (`search-indexers.processor.ts`, before ranking; logs `Filtered out N result(s) for a different book of the series`). Interactive search unfiltered (admin decides). Pack search unaffected (packs are multi-book by design).
+- Known limit: series with differing numbering schemes (e.g. Narnia publication vs chronological) can drop a correct release → no auto-pick; use interactive search.
+
 ## Test Coverage
 
 **Comprehensive edge case testing includes:**

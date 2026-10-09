@@ -491,6 +491,13 @@ export class TransmissionService implements IDownloadClient {
   /**
    * Get a torrent by its info hash.
    */
+  /** File paths in a torrent (IDownloadClient.getDownloadFiles) */
+  async getDownloadFiles(id: string): Promise<string[]> {
+    const data = await this.rpc('torrent-get', { ids: [id], fields: ['files'] });
+    const files: Array<{ name: string }> = data?.arguments?.torrents?.[0]?.files || [];
+    return files.map((f) => f.name);
+  }
+
   private async getTorrentByHash(hash: string): Promise<TransmissionTorrent> {
     const data = await this.rpc('torrent-get', { ids: [hash], fields: TORRENT_FIELDS });
 

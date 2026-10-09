@@ -12,6 +12,7 @@ import { RMABLogger } from '../utils/logger';
 import { getLanguageForRegion } from '../constants/language-config';
 import { filterBlacklistedResults } from '../utils/release-blacklist';
 import { filterByLanguage, getRequiredReleaseLanguage } from '../utils/release-language';
+import { filterWrongSeriesBook } from '../utils/series-number';
 import { isPackSearchDue } from '../utils/pack-search-due';
 import type { AudibleRegion } from '../types/audible';
 
@@ -200,11 +201,36 @@ export async function processSearchIndexers(payload: SearchIndexersPayload): Pro
       logger.info(`Filtered out ${languageRemoved.length} result(s) not in ${requiredLanguage}: ${languageRemoved.slice(0, 5).map(r => `"${r.title}"`).join(', ')}`);
     }
 
+    // Another book of the same series ("Book 4" for a book 1 request) is never auto-picked
+    let candidates = searchResults;
+    try {
+      const seriesInfo = await prisma.audiobook.findUnique({
+        where: { id: audiobook.id },
+        select: { title: true, series: true, seriesPart: true },
+      });
+      if (seriesInfo?.seriesPart) {
+        const seriesFiltered = filterWrongSeriesBook(searchResults, {
+          title: seriesInfo.title || audiobook.title,
+          series: seriesInfo.series,
+          seriesPart: seriesInfo.seriesPart,
+        });
+        candidates = seriesFiltered.kept;
+        if (seriesFiltered.removed.length > 0) {
+          logger.info(
+            `Filtered out ${seriesFiltered.removed.length} result(s) for a different book of the series (requested #${seriesInfo.seriesPart}): ` +
+            seriesFiltered.removed.slice(0, 5).map(r => `"${r.result.title}" (#${r.numbers.join(', #')})`).join(', ')
+          );
+        }
+      }
+    } catch (error) {
+      logger.debug(`Series number check skipped: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
     // Rank results with indexer priorities and flag configs
     // Note: rankTorrents now filters out results < 20 MB internally
     // Use effectiveSearchTitle so custom search terms are respected for ranking
     // requireAuthor: true (default) - strict filtering for automatic selection
-    const rankedResults = ranker.rankTorrents(searchResults, {
+    const rankedResults = ranker.rankTorrents(candidates, {
       title: effectiveSearchTitle,
       author: audiobook.author,
       durationMinutes,

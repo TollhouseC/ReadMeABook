@@ -251,6 +251,13 @@ export class DelugeService implements IDownloadClient {
     return null;
   }
 
+  /** File paths in a torrent (IDownloadClient.getDownloadFiles) */
+  async getDownloadFiles(id: string): Promise<string[]> {
+    const { result } = await this.rpc('core.get_torrent_status', [id, ['files']]);
+    const files: Array<{ path: string }> = result?.files || [];
+    return files.map((f) => f.path);
+  }
+
   async pauseDownload(id: string): Promise<void> {
     await this.rpc('core.pause_torrent', [[id]]);
     logger.info(`Paused torrent: ${id}`);

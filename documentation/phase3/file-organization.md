@@ -42,6 +42,10 @@ Result: Douglas Adams/Stephen Fry/The Hitchhiker's Guide to the Galaxy/
   - Disc folders (`CD1`, `Disc 2`, `Part 3`) are not separate books.
 - **Library-wide:** Jobs page → "Library Layout Check (Report Only)" / "Library Layout Fix (Apply)" (`library_layout_report|apply` → `fix_library_layout` job, `src/lib/processors/fix-library-layout.processor.ts`). `findNestedBooks` lists book folders containing other books; apply moves the outer book down, updates `filePath`, triggers scan.
 
+## Shared Download Folders & Multi-Book Guard
+- **Torrent's own files** (`src/lib/utils/torrent-own-files.ts`, called from `resolveImportSelection` in `organize-files.processor.ts`): torrents from one uploader can share a top folder (`/downloads/Sun Eater (Christopher Ruocchio)/` held 3 single-book torrents) → each import copied every book. Non-pack torrent imports with ≥2 audio files ask the client (`IDownloadClient.getDownloadFiles`, qBittorrent/Transmission/Deluge) for the torrent's files, strip its top folder, and import only those when the folder also holds other audio. Logs `Shared download folder — importing only this torrent's N audio file(s)…`. Client unreachable / torrent removed / no overlap → folder imported as before (warn). Pack selection and explicit `selectedFiles` take precedence.
+- **Multi-book guard** (`src/lib/utils/multi-book-guard.ts`, in `FileOrganizer.organize()` after selection + format dedup): total probed audio > **1.8×** the Audible runtime (`MULTI_BOOK_RATIO`) → import refused: `Download holds Xh of audio but "Title" is Yh on Audible — it looks like several books…`. No ASIN/runtime → no check. Catches whole-series torrents for one book (HWFwM 10 imported books 2–10 from `/downloads/He Who Fights with Monsters - Shirtaloon`).
+
 ## Process
 
 1. Download completes in `/downloads/[torrent-name]/` or `/downloads/[filename]` (single file)
@@ -222,6 +226,7 @@ async function organize(
 **4. Single file downloads** - Now supports files directly in downloads folder (not just directories)
 **5. Hardcoded media path** - Now reads `media_dir` from database config instead of hardcoded `/media/audiobooks`
 **6. Invalid URL error for cached cover art** - Fixed by detecting local cached thumbnails (`/api/cache/thumbnails/*`) and copying from `/app/cache/thumbnails/` instead of attempting HTTP download
+**7. Several books imported into one book folder** - Shared torrent folders now import only the torrent's files; >1.8× runtime imports refused (see Shared Download Folders & Multi-Book Guard)
 
 ## Tech Stack
 

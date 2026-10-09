@@ -105,6 +105,31 @@ describe('processSearchIndexers', () => {
     );
   });
 
+  it('never picks a release for a different book of the series', async () => {
+    configMock.get.mockImplementation(async (key: string) => {
+      if (key === 'prowlarr_indexers') {
+        return JSON.stringify([{ id: 1, name: 'Indexer', protocol: 'torrent', priority: 10, categories: [3030] }]);
+      }
+      if (key === 'indexer_flag_config') return JSON.stringify([]);
+      return null;
+    });
+    const series = 'He Who Fights with Monsters';
+    const base = { indexer: 'Indexer', indexerId: 1, size: 900 * 1024 * 1024, publishDate: new Date(), format: 'M4B' };
+    prowlarrMock.searchWithVariations.mockResolvedValue([
+      { ...base, title: `Shirtaloon - ${series} 4 A LitRPG Adventure (${series}, Book 4) [M4B]`, seeders: 50, downloadUrl: 'magnet:?xt=urn:btih:b4', guid: 'g4' },
+      { ...base, title: `Shirtaloon - ${series} A LitRPG Adventure (${series}, Book 1) [M4B]`, seeders: 2, downloadUrl: 'magnet:?xt=urn:btih:b1', guid: 'g1' },
+    ]);
+    prismaMock.audiobook.findUnique.mockResolvedValue({ title: `${series}: A LitRPG Adventure`, series, seriesPart: '1' });
+    prismaMock.request.update.mockResolvedValue({});
+
+    const { processSearchIndexers } = await import('@/lib/processors/search-indexers.processor');
+    const audiobook = { id: 'a-hw1', title: `${series}: A LitRPG Adventure`, author: 'Shirtaloon' };
+    const result = await processSearchIndexers({ requestId: 'req-hw1', audiobook, jobId: 'job-hw1' });
+
+    expect(result.success).toBe(true);
+    expect(jobQueueMock.addDownloadJob).toHaveBeenCalledWith('req-hw1', audiobook, expect.objectContaining({ guid: 'g1' }));
+  });
+
   it('skips blacklisted releases and picks the next best one', async () => {
     configMock.get.mockImplementation(async (key: string) => {
       if (key === 'prowlarr_indexers') {

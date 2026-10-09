@@ -104,6 +104,13 @@ vi.mock('@/lib/utils/library-layout', () => layoutMock);
 const runtimeMock = vi.hoisted(() => ({ checkRuntime: vi.fn(async () => ({ matches: null, expectedMs: null })) }));
 vi.mock('@/lib/services/library-merge.service', () => runtimeMock);
 
+// Multi-book guard: passes by default (covered in multi-book-guard.test.ts)
+const multiBookMock = vi.hoisted(() => ({
+  checkMultiBookImport: vi.fn(async () => null as null | { totalMs: number; expectedMs: number }),
+  describeMultiBook: vi.fn(() => 'Download holds 195.2h of audio but "Book" is 25.3h on Audible'),
+}));
+vi.mock('@/lib/utils/multi-book-guard', () => multiBookMock);
+
 describe('file organizer', () => {
   const originalEnv = { ...process.env };
 
@@ -394,6 +401,23 @@ describe('file organizer', () => {
     expect(chapterMock.mergeChapters).not.toHaveBeenCalled();
     expect(result.success).toBe(true);
     expect(result.filesMovedCount).toBe(2);
+  });
+
+  it('refuses a download that holds several books instead of copying them all', async () => {
+    configState.values.set('chapter_merging_enabled', 'false');
+    configState.values.set('metadata_tagging_enabled', 'false');
+    multiBookMock.checkMultiBookImport.mockResolvedValueOnce({ totalMs: 195 * 3_600_000, expectedMs: 25 * 3_600_000 });
+
+    const organizer = new FileOrganizer('/media', '/tmp');
+    (organizer as any).findAudiobookFiles = vi.fn().mockResolvedValue({ audioFiles: ['b2.m4b', 'b10.m4b'], coverFile: undefined, isFile: false });
+    const result = await organizer.organize('/downloads/series', { title: 'Book', author: 'Author', asin: 'B0X' }, '{author}/{title}');
+
+    expect(multiBookMock.checkMultiBookImport).toHaveBeenCalledWith(
+      [path.join('/downloads/series', 'b2.m4b'), path.join('/downloads/series', 'b10.m4b')], 'B0X'
+    );
+    expect(result.success).toBe(false);
+    expect(result.errors.join(' ')).toContain('195.2h of audio');
+    expect(copyFileMock.copyFile).not.toHaveBeenCalled();
   });
 
   it('uses tagged files when metadata tagging succeeds', async () => {

@@ -24,6 +24,7 @@ import { substituteTemplate, buildRenamedFilename, type TemplateVariables } from
 import { applyVersionLabel } from './book-versions';
 import { resolveCollisionFreeTarget } from './library-layout';
 import { checkRuntime } from '../services/library-merge.service';
+import { checkMultiBookImport, describeMultiBook } from './multi-book-guard';
 import { AUDIO_EXTENSIONS } from '../constants/audio-formats';
 
 export interface AudiobookMetadata {
@@ -149,6 +150,16 @@ export class FileOrganizer {
 
       if (audioFiles.length === 0) {
         throw new Error('No audiobook files found in download');
+      }
+
+      // Several books in one download (series torrent, shared folder) → refuse rather than
+      // copy them all into this book's folder
+      const multiBook = await checkMultiBookImport(
+        audioFiles.map((f) => (isFile ? downloadPath : path.join(downloadPath, f))),
+        audiobook.asin
+      );
+      if (multiBook) {
+        throw new Error(describeMultiBook(multiBook, audiobook.title));
       }
 
       await logger?.info(`Found ${audioFiles.length} audio files`);

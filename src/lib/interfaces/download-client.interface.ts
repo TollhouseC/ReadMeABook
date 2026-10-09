@@ -201,4 +201,11 @@ export interface IDownloadClient {
    * @param category - Category/label name to assign
    */
   setCategory(id: string, category: string): Promise<void>;
+
+  /**
+   * File paths inside a download, as the client reports them (torrent clients only).
+   * Used so an import takes only this torrent's files when several torrents share a folder.
+   * @param id - Download ID
+   */
+  getDownloadFiles?(id: string): Promise<string[]>;
 }

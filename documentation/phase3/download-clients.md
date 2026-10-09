@@ -214,6 +214,7 @@ Accepts both legacy single client and new array format:
 **Custom path blank:** Uses base `download_dir` (backward-compatible default)
 **Custom path with slashes:** Leading/trailing slashes stripped automatically
 **Custom path with `..`:** Rejected by frontend validation and API validation
+**Torrent file list:** optional `getDownloadFiles(id)` on `IDownloadClient` (qBittorrent `/torrents/files`, Transmission `torrent-get files`, Deluge `files` status) → used at import to take only a torrent's own files from a shared folder
 **Switching torrent clients:** Must delete existing torrent client before adding Transmission (or vice versa)
 
 ## Verification Steps

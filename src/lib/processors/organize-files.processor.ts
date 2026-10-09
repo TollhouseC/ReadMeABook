@@ -17,29 +17,41 @@ import { fixEpubForKindle, cleanupFixedEpub } from '../utils/epub-fixer';
 import { removeEmptyParentDirectories } from '../utils/cleanup-helpers';
 import { getAudibleService } from '../integrations/audible.service';
 import { fixChaptersIfBetter } from '../utils/chapter-fixer';
+import { selectTorrentOwnFiles } from '../utils/torrent-own-files';
 
 /**
  * Files to import for this request. Callers that re-run an import (Retry Failed Imports,
  * the request "retry" action, …) don't pass a selection — for a series/author pack that
  * meant importing EVERY book of the pack into this book's folder. The selection now always
  * comes from the request's current download when it's a pack; a pack with no files listed
- * for this book is refused rather than imported whole.
+ * for this book is refused rather than imported whole. For a normal torrent whose folder is
+ * shared with other torrents (same top folder name), only this torrent's files are imported.
  */
-export async function resolveImportSelection(requestId: string, selectedFiles?: string[]): Promise<string[] | undefined> {
+export async function resolveImportSelection(
+  requestId: string,
+  selectedFiles?: string[],
+  downloadPath?: string,
+  logger?: RMABLogger
+): Promise<string[] | undefined> {
   if (selectedFiles && selectedFiles.length > 0) return selectedFiles;
 
   const download = await prisma.downloadHistory.findFirst({
     where: { requestId, selected: true },
     orderBy: { createdAt: 'desc' },
-    select: { packFiles: true, torrentName: true },
+    select: { packFiles: true, torrentName: true, downloadClient: true, downloadClientId: true, torrentHash: true },
   });
-  if (!download || !Array.isArray(download.packFiles)) return undefined;
+  if (!download) return undefined;
 
-  const packFiles = download.packFiles as string[];
-  if (packFiles.length === 0) {
-    throw new Error(`"${download.torrentName ?? 'pack'}" is a multi-book pack with no files listed for this book — refusing to import the whole pack`);
+  if (Array.isArray(download.packFiles)) {
+    const packFiles = download.packFiles as string[];
+    if (packFiles.length === 0) {
+      throw new Error(`"${download.torrentName ?? 'pack'}" is a multi-book pack with no files listed for this book — refusing to import the whole pack`);
+    }
+    logger?.info(`Pack download: importing only this book's ${packFiles.length} file(s) from it`);
+    return packFiles;
   }
-  return packFiles;
+
+  return downloadPath ? selectTorrentOwnFiles(downloadPath, download, logger) : undefined;
 }
 
 /**
@@ -98,11 +110,9 @@ export async function processOrganizeFiles(payload: OrganizeFilesPayload): Promi
 
     logger.info(`Organizing: ${audiobook.title} by ${audiobook.author}`);
 
-    // Pack downloads: import only this book's files, however this import was started
-    const selectedFiles = await resolveImportSelection(requestId, payload.selectedFiles);
-    if (selectedFiles && !payload.selectedFiles?.length) {
-      logger.info(`Pack download: importing only this book's ${selectedFiles.length} file(s) from it`);
-    }
+    // Pack downloads / shared torrent folders: import only this book's files, however this
+    // import was started
+    const selectedFiles = await resolveImportSelection(requestId, payload.selectedFiles, downloadPath, logger);
 
     // Fetch missing metadata from AudibleCache if needed
     // Year and narrator can both be part of path templates
