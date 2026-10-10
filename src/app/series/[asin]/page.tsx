@@ -5,7 +5,7 @@
 
 'use client';
 
-import { use, useCallback, useMemo } from 'react';
+import { use, useCallback, useEffect, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Header } from '@/components/layout/Header';
 import { AudiobookGrid } from '@/components/audiobooks/AudiobookGrid';
@@ -27,7 +27,15 @@ export default function SeriesDetailPage({
   const router = useRouter();
   const searchParams = useSearchParams();
   const fromSeriesTitle = searchParams.get('from');
-  const { series, hasMore, isLoading: seriesLoading, isLoadingMore, loadMore } = useSeriesDetail(asin);
+  const movedFrom = searchParams.get('movedFrom');
+  const { series, hasMore, isLoading: seriesLoading, isLoadingMore, loadMore, movedTo } = useSeriesDetail(asin);
+
+  // Audible archived this series → go to the series that replaced it
+  useEffect(() => {
+    if (movedTo && movedTo.asin !== asin) {
+      router.replace(`/series/${movedTo.asin}?movedFrom=${encodeURIComponent(movedTo.from)}`);
+    }
+  }, [movedTo, asin, router]);
   const { cardSize, setCardSize, squareCovers, setSquareCovers, hideAvailable, setHideAvailable } = usePreferences();
 
   const handleBack = useCallback(() => {
@@ -73,6 +81,12 @@ export default function SeriesDetailPage({
             </svg>
             {fromSeriesTitle ? `Back to ${fromSeriesTitle}` : 'Back to Series'}
           </button>
+
+          {movedFrom && (
+            <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
+              Audible moved this series here from &ldquo;{movedFrom}&rdquo;. Watches and book links were updated.
+            </div>
+          )}
 
           {/* Series Detail Card */}
           {seriesLoading ? (

@@ -9,6 +9,7 @@
  */
 
 import { prisma } from '@/lib/db';
+import { findReplacementSeries, isArchivedSeriesTitle, moveToReplacementSeries } from './archived-series';
 import { getAudibleService, AudibleAudiobook } from '@/lib/integrations/audible.service';
 import { scrapeSeriesPage } from '@/lib/integrations/audible-series';
 import { deduplicateAndCollectGroups } from '@/lib/utils/deduplicate-audiobooks';
@@ -174,10 +175,12 @@ async function processSeriesForUsers(
     user: { id: string; plexUsername: string };
   }>,
   log: ReturnType<typeof RMABLogger.forJob> | ReturnType<typeof RMABLogger.create>,
-  stats: WatchedListsSyncStats
+  stats: WatchedListsSyncStats,
+  followedArchive = false
 ): Promise<void> {
   const title = subscriptions[0].seriesTitle;
   log.info(`Scraping watched series: "${title}" (${seriesAsin})`);
+  let scrapedTitle: string | undefined;
 
   // Scrape all pages of the series (up to MAX_BOOKS_PER_SERIES)
   const allBooks: AudibleAudiobook[] = [];
@@ -186,6 +189,7 @@ async function processSeriesForUsers(
 
   while (hasMore && allBooks.length < MAX_BOOKS_PER_SERIES) {
     const result = await scrapeSeriesPage(seriesAsin, page);
+    if (page === 1) scrapedTitle = result?.title;
     if (!result || result.books.length === 0) break;
 
     allBooks.push(...result.books);
@@ -195,8 +199,18 @@ async function processSeriesForUsers(
     if (hasMore) await delay(1000);
   }
 
+  // Audible archived (emptied) this series → follow it to its replacement, once
+  if (!followedArchive && (allBooks.length === 0 || isArchivedSeriesTitle(scrapedTitle))) {
+    const replacement = await findReplacementSeries(seriesAsin, scrapedTitle || title).catch(() => null);
+    if (replacement) {
+      await moveToReplacementSeries(seriesAsin, replacement, log);
+      const moved = subscriptions.map(s => ({ ...s, seriesTitle: replacement.title }));
+      return processSeriesForUsers(replacement.asin, moved, log, stats, true);
+    }
+  }
+
   if (allBooks.length === 0) {
-    log.info(`No books found for series "${title}"`);
+    log.info(`No books found for series "${title}"${isArchivedSeriesTitle(scrapedTitle) ? ' — Audible archived it and no replacement was found; re-watch the new series by hand' : ''}`);
     stats.seriesChecked++;
     return;
   }

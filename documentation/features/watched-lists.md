@@ -47,6 +47,13 @@ Users watch an Audible series or author; a nightly job scrapes it and auto-reque
 - **API:** `GET /api/user/upcoming` → `{ upcoming: [{asin,title,author,series,seriesPart,coverArtUrl,releaseDate}] }` for the user's watched series+authors, deduped by asin (series row preferred), soonest first.
 - **UI:** Profile → "Upcoming Releases" (`src/components/profile/UpcomingReleasesSection.tsx`, hook `useUpcomingReleases`): Title (Series #N) · Author · date. Hidden when the user watches nothing.
 
+## Archived Audible Series
+- **Why:** Audible sometimes replaces a series with a new one and empties the old page, renaming it `<name> [ARCHIVED]` (Black Company B005NBPHB8 → Chronicles of the Black Company B0H363Q436). Audnexus keeps the old series ASIN on books → empty series page, watches that never find books.
+- **Detect:** series title contains `[ARCHIVED]`, or page 1 has no books (`isArchivedSeriesTitle`, `src/lib/services/archived-series.ts`).
+- **Replacement** (`findReplacementSeries`): up to 5 ReadMeABook audiobooks with that `seriesAsin` → Audible catalog `getProductsByAsins` (live) → their current series, if a different, non-archived series with a related name (one name inside the other, or similarity ≥ 0.6). Fallback: `searchForSeries(<name>)`, used only when exactly one result fits.
+- **Move** (`moveToReplacementSeries`): `WatchedSeries` rows → new ASIN + title (row deleted when the user already watches the new series); `Audiobook.seriesAsin` updated (**`series` name untouched** — library folders keep "Black Company"); `UpcomingRelease` rows of the old source deleted (rebuilt on the next check).
+- **Where:** `check_watched_lists` (`processSeriesForUsers` follows once, then checks the replacement the same run; no replacement → log says to re-watch by hand); `GET /api/series/{asin}` returns `movedTo {asin, title, from}` → series page `router.replace('/series/<new>?movedFrom=<old title>')` with a notice.
+
 ## Stats (job result)
 `seriesChecked`, `authorsChecked`, `booksFound`, `requestsCreated`, `skippedOwned`, `skippedExisting`, `skippedDuplicateVersion`, `alternateVersionsQueued`, `skippedUpcoming`, `errors`. Each duplicate-version skip and pre-order hold is logged with title + ASIN.
 

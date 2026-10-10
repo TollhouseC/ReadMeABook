@@ -47,6 +47,7 @@
 - **Duplicate versions (dramatized, full cast, other narrators) — one per book** → [features/watched-lists.md](features/watched-lists.md#duplicate-versions)
 - **Alternate versions opt-in (admin approval, own series in library)** → [features/watched-lists.md](features/watched-lists.md#alternate-versions-per-series-opt-in)
 - **Upcoming releases list, pre-orders held until release day** → [features/watched-lists.md](features/watched-lists.md#upcoming-releases--pre-orders)
+- **Archived Audible series ("[ARCHIVED]", empty page) → watches/links moved to the replacement** → [features/watched-lists.md](features/watched-lists.md#archived-audible-series)
 
 ## Audible Integration
 - **Web scraping (popular, new releases)** → [integrations/audible.md](integrations/audible.md)

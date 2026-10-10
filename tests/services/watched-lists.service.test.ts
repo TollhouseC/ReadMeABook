@@ -68,6 +68,15 @@ vi.mock('@/lib/utils/audiobook-matcher', () => ({
   findPlexMatch: vi.fn().mockResolvedValue(null),
 }));
 
+// Archived series: no replacement by default
+const mockFindReplacementSeries = vi.fn();
+const mockMoveToReplacementSeries = vi.fn();
+vi.mock('@/lib/services/archived-series', () => ({
+  isArchivedSeriesTitle: (t?: string) => !!t && t.toLowerCase().includes('[archived]'),
+  findReplacementSeries: (...args: any[]) => mockFindReplacementSeries(...args),
+  moveToReplacementSeries: (...args: any[]) => mockMoveToReplacementSeries(...args),
+}));
+
 describe('processWatchedLists', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -77,6 +86,32 @@ describe('processWatchedLists', () => {
     prismaMock.plexLibrary.findMany.mockResolvedValue([]);
     mockGetSiblingAsins.mockResolvedValue(new Map());
     mockPersistDedupGroups.mockResolvedValue(undefined);
+    mockFindReplacementSeries.mockResolvedValue(null);
+    mockMoveToReplacementSeries.mockResolvedValue(1);
+  });
+
+  it('follows a series Audible archived to its replacement and moves the watch', async () => {
+    prismaMock.watchedSeries.findMany.mockResolvedValue([{
+      id: 'ws-1', userId: 'user-1', seriesAsin: 'B005NBPHB8', seriesTitle: 'Black Company', coverArtUrl: null, lastCheckedAt: null,
+      user: { id: 'user-1', plexUsername: 'testuser' },
+    }]);
+    prismaMock.watchedAuthor.findMany.mockResolvedValue([]);
+    prismaMock.watchedSeries.update.mockResolvedValue({});
+    const book = { asin: 'B003XX5CCM', title: 'Shadows Linger', author: 'Glen Cook', narrator: 'N' };
+    mockScrapeSeriesPage.mockImplementation(async (asin: string) => (asin === 'B005NBPHB8'
+      ? { asin, title: 'Black Company [ARCHIVED]', bookCount: 0, books: [], hasMore: false, page: 1 }
+      : { asin, title: 'Chronicles of the Black Company', bookCount: 1, books: [book], hasMore: false, page: 1 }));
+    mockFindReplacementSeries.mockResolvedValue({ asin: 'B0H363Q436', title: 'Chronicles of the Black Company' });
+    mockDeduplicateAndCollectGroups.mockReturnValue({ books: [book], groups: [] });
+    mockCreateRequestForUser.mockResolvedValue({ success: true, request: {} });
+
+    const { processWatchedLists } = await import('@/lib/services/watched-lists.service');
+    const stats = await processWatchedLists();
+
+    expect(mockFindReplacementSeries).toHaveBeenCalledWith('B005NBPHB8', 'Black Company [ARCHIVED]');
+    expect(mockMoveToReplacementSeries).toHaveBeenCalledWith('B005NBPHB8', { asin: 'B0H363Q436', title: 'Chronicles of the Black Company' }, expect.anything());
+    expect(mockScrapeSeriesPage).toHaveBeenCalledWith('B0H363Q436', 1);
+    expect(stats.booksFound).toBe(1);
   });
 
   it('processes watched series and creates requests for new books', async () => {
