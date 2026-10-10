@@ -15,7 +15,7 @@ const logger = RMABLogger.create('JobQueue');
 
 /** Jobs that report live progress (admin header indicator / Jobs page). */
 const LONG_JOB_TYPES: string[] = [
-  'fix_chapters', 'fix_library_layout', 'merge_library_book', 'merge_library', 'organize_library', 'match_library', 'plex_library_scan', 'scan_plex', 'check_watched_lists',
+  'fix_chapters', 'fix_library_layout', 'merge_library_book', 'merge_library', 'organize_library', 'match_library', 'library_health_report', 'plex_library_scan', 'scan_plex', 'check_watched_lists',
 ];
 
 const queuedProgress = () => ({ current: 0, total: null, label: 'Queued', cancellable: true, updatedAt: new Date().toISOString() });
@@ -43,6 +43,7 @@ export type JobType =
   | 'merge_library'
   | 'organize_library'
   | 'match_library'
+  | 'library_health_report'
   | 'send_notification'
   // Ebook-specific job types
   | 'search_ebook'
@@ -159,6 +160,10 @@ export interface OrganizeLibraryPayload extends JobPayload {
 export interface MatchLibraryPayload extends JobPayload {
   /** 'report' lists wrong Audiobookshelf matches, 'apply' re-matches the confident ones */
   mode?: 'report' | 'apply';
+  scheduledJobId?: string;
+}
+
+export interface LibraryHealthReportPayload extends JobPayload {
   scheduledJobId?: string;
 }
 
@@ -516,6 +521,12 @@ export class JobQueueService {
       const { processMatchLibrary } = await import('../processors/match-library.processor');
       const payloadWithJobId = await this.ensureJobRecord(job, 'match_library');
       return await processMatchLibrary(payloadWithJobId);
+    });
+
+    this.queue.process('library_health_report', 1, async (job: BullJob<LibraryHealthReportPayload>) => {
+      const { processLibraryHealthReport } = await import('../processors/library-health-report.processor');
+      const payloadWithJobId = await this.ensureJobRecord(job, 'library_health_report');
+      return await processLibraryHealthReport(payloadWithJobId);
     });
 
     // Send notification processor
@@ -957,6 +968,13 @@ export class JobQueueService {
    */
   async addMatchLibraryJob(options: { mode?: 'report' | 'apply'; scheduledJobId?: string }): Promise<string> {
     return await this.addJob('match_library', { ...options } as MatchLibraryPayload, { priority: 9 });
+  }
+
+  /**
+   * Every library check in Report Only mode, in one log
+   */
+  async addLibraryHealthReportJob(options: { scheduledJobId?: string }): Promise<string> {
+    return await this.addJob('library_health_report', { ...options } as LibraryHealthReportPayload, { priority: 9 });
   }
 
   /**

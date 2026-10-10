@@ -93,6 +93,7 @@
 - **Stalled downloads (24h no progress → blacklist + re-search)** → [backend/services/scheduler.md](backend/services/scheduler.md#stalled-download-detection)
 - **Scheduled/recurring jobs (cron)** → [backend/services/scheduler.md](backend/services/scheduler.md)
 - **Library scan without the 12h missing-item wait (Library Scan (No Wait))** → [backend/services/jobs.md](backend/services/jobs.md)
+- **Library Health Report (all library checks, Report Only, one log, monthly)** → [backend/services/jobs.md](backend/services/jobs.md)
 - **Job types:** search, download monitor, organize, Plex scan, cleanup, retries
 
 ## Logging

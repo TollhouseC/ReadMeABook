@@ -31,6 +31,7 @@ const processorsMock = vi.hoisted(() => ({
   processMergeLibrary: vi.fn().mockResolvedValue('ok'),
   processOrganizeLibrary: vi.fn().mockResolvedValue('ok'),
   processMatchLibrary: vi.fn().mockResolvedValue('ok'),
+  processLibraryHealthReport: vi.fn().mockResolvedValue('ok'),
   // Ebook processors
   processSearchEbook: vi.fn().mockResolvedValue('ok'),
   processStartDirectDownload: vi.fn().mockResolvedValue('ok'),
@@ -163,6 +164,10 @@ vi.mock('@/lib/processors/organize-library.processor', () => ({
 
 vi.mock('@/lib/processors/match-library.processor', () => ({
   processMatchLibrary: processorsMock.processMatchLibrary,
+}));
+
+vi.mock('@/lib/processors/library-health-report.processor', () => ({
+  processLibraryHealthReport: processorsMock.processLibraryHealthReport,
 }));
 
 // Ebook processors
@@ -619,6 +624,7 @@ describe('JobQueueService', () => {
     expect(processorsMock.processMergeLibrary).toHaveBeenCalled();
     expect(processorsMock.processOrganizeLibrary).toHaveBeenCalled();
     expect(processorsMock.processMatchLibrary).toHaveBeenCalled();
+    expect(processorsMock.processLibraryHealthReport).toHaveBeenCalled();
   });
 
   it('returns repeatable jobs from the queue', async () => {

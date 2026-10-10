@@ -289,6 +289,7 @@ export default function AdminLogsPage() {
               <option value="merge_library">Library Merge</option>
               <option value="organize_library">Library Organize</option>
               <option value="match_library">Library Match Check</option>
+              <option value="library_health_report">Library Health Report</option>
             </select>
           </div>
         </div>

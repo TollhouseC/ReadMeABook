@@ -28,6 +28,7 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
   fix_library_layout: 'Library Layout Check / Fix',
   organize_library: 'Library Organize',
   match_library: 'Library Match Check',
+  library_health_report: 'Library Health Report',
   send_notification: 'Send Notification',
   search_ebook: 'Search Ebook',
   start_direct_download: 'Start Direct Download',
