@@ -57,6 +57,19 @@ describe('chapterReplacementReason', () => {
     expect(chapterReplacementReason(numbered(19), audnexus)).toBeNull();
     expect(chapterReplacementReason(numbered(20, 'Track '), numbered(20))).toBeNull(); // Audnexus no better
   });
+
+  it('skips a single Audnexus chapter (1 → 1, 0 → 1)', () => {
+    expect(chapterReplacementReason(markers(['Book']), markers(['Book']))).toBeNull();
+    expect(chapterReplacementReason([], markers(['Book']))).toBeNull();
+  });
+
+  it('with numbers-only Audnexus, replaces numbered chapters only when the count differs (no endless re-fixing)', () => {
+    const numbersWithCredits = markers(['Opening Credits', ...Array.from({ length: 23 }, (_, i) => `${i + 1}`), 'End Credits']);
+    expect(chapterReplacementReason(numbered(25, ''), numbersWithCredits)).toBeNull(); // 25 → 25
+    expect(chapterReplacementReason(numbered(18, 'Track '), numbered(19))).toMatch(/count differs \(18 vs 19/);
+    // After that fix the file has 19 numbered chapters → left alone next run
+    expect(chapterReplacementReason(numbered(19, ''), numbered(19))).toBeNull();
+  });
 });
 
 describe('fixChaptersIfBetter', () => {

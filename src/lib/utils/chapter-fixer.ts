@@ -35,21 +35,28 @@ export interface ChapterFixResult {
 
 const JUNK_TITLE_RE = /^\s*(?:track\s*)?\d+\s*$|\.(?:mp3|m4a|m4b|flac)$/i;
 const GENERIC_CHAPTER_RE = /^\s*chapter\s*\d+\s*$/i;
+const CREDITS_RE = /^\s*(?:opening|end|closing)\s+credits\s*$/i;
 
 /**
  * Why Audnexus chapters should replace the current ones, or null to keep them.
  * Similar chapters (even plain "Chapter 1, 2, …") are kept — swapping gains nothing.
+ * When Audnexus itself only has numbers (plus credits), numbered chapters are replaced only
+ * if the count differs — otherwise every run would swap numbers for numbers again.
  */
 export function chapterReplacementReason(current: ChapterMarker[], audnexus: ChapterMarker[]): string | null {
+  if (audnexus.length <= 1) return null; // one Audnexus chapter (1 → 1, 0 → 1) gains nothing
   if (current.length <= 1) return `file has ${current.length} chapter(s), Audnexus has ${audnexus.length}`;
   if (current.length < audnexus.length * 0.5) return `only ${current.length} chapters vs ${audnexus.length} on Audnexus`;
 
   const titles = current.map(c => c.title.trim());
   if (new Set(titles.map(t => t.toLowerCase())).size === 1) return 'every chapter has the same name';
 
-  const audnexusHasRealTitles = audnexus.some(c => !JUNK_TITLE_RE.test(c.title) && !GENERIC_CHAPTER_RE.test(c.title));
-  if (titles.every(t => !t || JUNK_TITLE_RE.test(t)) && audnexusHasRealTitles) {
-    return 'chapter names are only numbers/file names';
+  const audnexusHasRealTitles = audnexus.some(c => !JUNK_TITLE_RE.test(c.title) && !GENERIC_CHAPTER_RE.test(c.title) && !CREDITS_RE.test(c.title));
+  if (titles.every(t => !t || JUNK_TITLE_RE.test(t))) {
+    if (audnexusHasRealTitles) return 'chapter names are only numbers/file names';
+    if (current.length !== audnexus.length) {
+      return `chapter count differs (${current.length} vs ${audnexus.length} on Audnexus; names are numbers on both)`;
+    }
   }
   return null;
 }

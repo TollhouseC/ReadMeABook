@@ -41,7 +41,7 @@ ABS keeps its own chapter list (DB + `metadata.json` with "Store metadata with i
 Replace a single-file book's chapters with Audnexus's when Audnexus matches and is clearly better. Stream copy (no re-encode).
 - **Core:** `src/lib/utils/chapter-fixer.ts` → `fixChaptersIfBetter(file, asin, {apply})` → `fixed | would_fix | kept | skipped | failed`. Formats: .m4b/.m4a/.mp4.
 - **Audnexus must fit:** same rule as merges (`isAccurate`, runtime within max(30s, 0.5%)); else `skipped`.
-- **Replace when** (`chapterReplacementReason`): ≤1 chapter; fewer than 50% of Audnexus's count; all names identical; all names number/filename-only while Audnexus has real titles. Similar chapters (even "Chapter N") are kept.
+- **Replace when** (`chapterReplacementReason`): ≤1 chapter; fewer than 50% of Audnexus's count; all names identical; all names number/filename-only while Audnexus has real titles (Opening/End Credits don't count as real). Number-only names on both sides → only when the chapter count differs (then stable — no re-fixing every run). Audnexus with ≤1 chapter → never (1 → 1, 0 → 1). Similar chapters (even "Chapter N") are kept.
 - **Rewrite:** `ffmpeg -map 0:a [-map 0:v + attached_pic] -map_metadata 0 -map_chapters 1 -c copy -f mp4` → `<file>.rmab-tmp` (same folder) → validate (duration within max(5s, 1%), chapter count) → keep file mode → atomic rename. Failure leaves original.
 - **Triggers:**
   - **Every import:** `organize-files.processor.ts` runs it (apply) on single-file imports with an ASIN, after copy, before scan. Never fails the import.
