@@ -160,9 +160,19 @@ export async function processMatchLibrary(payload: MatchLibraryPayload) {
             counts.would_rematch++;
             await logger.info(`Would re-match ${where} → ${describe(decision.candidate)} — ${decision.why}`);
           } else {
-            await triggerABSItemMatch(suspect.item.id, decision.candidate.asin);
-            counts.rematched++;
-            await logger.info(`Re-matched ${where} → ${describe(decision.candidate)} — ${decision.why}`);
+            // overrideDetails: without it Audiobookshelf only fills empty fields and keeps the wrong match
+            const res = await triggerABSItemMatch(suspect.item.id, decision.candidate.asin, { overrideDetails: true, overrideCover: true, throwOnError: true });
+            const applied = !!res?.updated && (!res.asin || res.asin.toLowerCase() === decision.candidate.asin.toLowerCase());
+            if (applied) {
+              counts.rematched++;
+              await logger.info(`Re-matched ${where} → ${describe(decision.candidate)} — ${decision.why}`);
+            } else {
+              counts.failed++;
+              await logger.warn(
+                `Audiobookshelf didn't apply the match for ${where} → ${describe(decision.candidate)}: ` +
+                (res?.updated ? `the item now has ASIN ${res.asin}` : 'it reported nothing updated')
+              );
+            }
           }
           break;
         case 'wrong_audio':

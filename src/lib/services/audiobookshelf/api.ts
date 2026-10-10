@@ -137,14 +137,33 @@ export async function triggerABSScan(libraryId: string, options: { force?: boole
   await response.text();
 }
 
+export interface ABSMatchOptions {
+  /** Replace existing details (ABS otherwise only fills empty fields — an item that already
+   *  has an ASIN/title would not change at all) */
+  overrideDetails?: boolean;
+  /** Replace the existing cover too */
+  overrideCover?: boolean;
+  /** Throw instead of logging and returning null */
+  throwOnError?: boolean;
+}
+
+export interface ABSMatchResult {
+  /** Audiobookshelf reports it changed the item */
+  updated: boolean;
+  /** ASIN on the item after the match */
+  asin?: string;
+}
+
 /**
  * Trigger metadata match for a specific library item
  * This tells Audiobookshelf to automatically match and populate metadata from providers
  *
  * @param itemId - The Audiobookshelf item ID
  * @param asin - Optional ASIN for direct Audible matching (100% accurate when provided)
+ * @param options - overrideDetails/overrideCover to correct an existing (wrong) match
+ * @returns What Audiobookshelf reports (null when the call failed and throwOnError is off)
  */
-export async function triggerABSItemMatch(itemId: string, asin?: string) {
+export async function triggerABSItemMatch(itemId: string, asin?: string, options: ABSMatchOptions = {}): Promise<ABSMatchResult | null> {
   try {
     // Get configured Audible region to use correct ABS provider
     const configService = getConfigService();
@@ -161,13 +180,22 @@ export async function triggerABSItemMatch(itemId: string, asin?: string) {
       body.overrideDefaults = true; // Override defaults since we have exact ASIN match
     }
 
-    await absRequest(`/items/${itemId}/match`, {
+    if (options.overrideDetails) body.overrideDetails = true;
+    if (options.overrideCover) body.overrideCover = true;
+
+    const result = await absRequest<any>(`/items/${itemId}/match`, {
       method: 'POST',
       body,
     });
+    return {
+      updated: !!result?.updated,
+      asin: result?.libraryItem?.media?.metadata?.asin || undefined,
+    };
   } catch (error) {
+    if (options.throwOnError) throw error;
     // Don't throw - matching is best-effort, scan should continue even if match fails
     logger.error(`Failed to trigger match for item ${itemId}`, { error: error instanceof Error ? error.message : String(error) });
+    return null;
   }
 }
 

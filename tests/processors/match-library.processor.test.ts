@@ -66,10 +66,19 @@ describe('processMatchLibrary', () => {
     expect(mocks.triggerABSItemMatch).not.toHaveBeenCalled();
   });
 
-  it('re-matches confident items in Audiobookshelf on apply', async () => {
+  it('re-matches confident items in Audiobookshelf on apply, replacing the existing details', async () => {
+    mocks.triggerABSItemMatch.mockResolvedValue({ updated: true, asin: 'B0LH' });
     const result = await run('apply');
-    expect(mocks.triggerABSItemMatch).toHaveBeenCalledWith('bad', 'B0LH');
-    expect(result).toMatchObject({ rematched: 1 });
+    expect(mocks.triggerABSItemMatch).toHaveBeenCalledWith('bad', 'B0LH', { overrideDetails: true, overrideCover: true, throwOnError: true });
+    expect(result).toMatchObject({ rematched: 1, failed: 0 });
+  });
+
+  it('reports a match Audiobookshelf did not apply instead of counting it as done', async () => {
+    mocks.triggerABSItemMatch.mockResolvedValue({ updated: false, asin: 'B0ER' });
+    expect(await run('apply')).toMatchObject({ rematched: 0, failed: 1 });
+
+    mocks.triggerABSItemMatch.mockRejectedValue(new Error('ABS API error: 500'));
+    expect(await run('apply')).toMatchObject({ rematched: 0, failed: 1 });
   });
 
   it('skips items with no audio (an ebook in the audiobook library)', async () => {

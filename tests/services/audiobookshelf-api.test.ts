@@ -261,7 +261,28 @@ describe('Audiobookshelf API client', () => {
       statusText: 'Boom',
     });
 
-    await expect(triggerABSItemMatch('item-1', 'ASIN123')).resolves.toBeUndefined();
+    await expect(triggerABSItemMatch('item-1', 'ASIN123')).resolves.toBeNull();
+    await expect(triggerABSItemMatch('item-1', 'ASIN123', { throwOnError: true })).rejects.toThrow();
+  });
+
+  it('replaces an existing match when asked (overrideDetails/overrideCover) and reports the result', async () => {
+    configServiceMock.get.mockImplementation(async (key: string) => {
+      if (key === 'audiobookshelf.server_url') return 'http://abs';
+      if (key === 'audiobookshelf.api_token') return 'token';
+      return null;
+    });
+    configServiceMock.getAudibleRegion.mockResolvedValue('us');
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ updated: true, libraryItem: { media: { metadata: { asin: 'B0LH' } } } }),
+    });
+
+    const result = await triggerABSItemMatch('item-1', 'B0LH', { overrideDetails: true, overrideCover: true });
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      provider: 'audible', asin: 'B0LH', overrideDefaults: true, overrideDetails: true, overrideCover: true,
+    });
+    expect(result).toEqual({ updated: true, asin: 'B0LH' });
   });
 
   it('deletes a library item successfully', async () => {

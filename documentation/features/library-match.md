@@ -28,7 +28,8 @@ Old imports (e.g. from Plex) get fuzzy-matched by Audiobookshelf, sometimes to t
   - `too_long` single-file books: chapters probed (`analyzeChapters`): 2–12 chapters each ≥ half the book → "chapters look like separate books" (box set, with start times); chapter number restarting at ≤1 after ≥5, or the first title repeating → "numbering starts over at H:MM:SS — probably the book twice". Several audio files → count shown.
   - Otherwise → `unsure` (editions listed); no title+author match at all → `not_found` (e.g. novellas only sold in collections).
   - No audio length (no ASIN) → `confident` to the folder's book.
-- Apply re-matches `confident` only: `triggerABSItemMatch(itemId, asin)` (`POST /items/{id}/match`, `overrideDefaults`) — rewrites that item's metadata (and `metadata.json` with "Store metadata with item").
+- Apply re-matches `confident` only: `triggerABSItemMatch(itemId, asin, { overrideDetails: true, overrideCover: true, throwOnError: true })` (`POST /items/{id}/match`) — rewrites that item's metadata and cover (and `metadata.json` with "Store metadata with item"). **Counted as re-matched only when ABS replies `updated: true` and the item now has the new ASIN**; otherwise logged "Audiobookshelf didn't apply the match …" (failed).
+- **Fixed (2026-10-10):** re-matches were sent without `overrideDetails` (only `overrideDefaults`, not an ABS option) → ABS only filled empty fields, so items with an existing ASIN never changed, while the job logged them as re-matched (errors swallowed, reply ignored).
 - **Result:** `{ checked, suspects, ok, other_edition, would_rematch, rematched, wrong_audio, too_short, too_long, unsure, not_found, failed }`.
 
 ## Related: [phase3/file-organization.md](../phase3/file-organization.md) (Library Organize), [features/chapter-merging.md](chapter-merging.md) (Library Merge), [backend/services/jobs.md](../backend/services/jobs.md)
