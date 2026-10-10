@@ -26,6 +26,7 @@ import { resolveCollisionFreeTarget } from './library-layout';
 import { checkRuntime } from '../services/library-merge.service';
 import { checkMultiBookImport, describeMultiBook } from './multi-book-guard';
 import { findLibraryHome } from './series-home';
+import { convertMp3ToM4b, isMp3 } from './mp3-convert';
 import { AUDIO_EXTENSIONS } from '../constants/audio-formats';
 
 export interface AudiobookMetadata {
@@ -270,6 +271,27 @@ export class FileOrganizer {
           result.errors.push(`Chapter merging error: ${error instanceof Error ? error.message : 'Unknown error'}`);
           await logger?.warn(`Falling back to organizing ${audioFiles.length} files individually`);
           // Continue with original audioFiles array
+        }
+      } else if (isMp3(audioFiles[0]) && (await prisma.configuration.findUnique({ where: { key: 'convert_single_mp3_enabled' } }))?.value === 'true') {
+        // Setting "Convert single MP3 files to M4B on import": re-encode so the book gets chapters
+        await logger?.info(`Single MP3 — converting to M4B (Convert single MP3 files to M4B on import)`);
+        try {
+          const sourcePath = isFile ? downloadPath : path.join(downloadPath, audioFiles[0]);
+          const outputPath = path.join(this.tempDir, `${this.sanitizePath(audiobook.title)}.m4b`);
+          const converted = await convertMp3ToM4b(sourcePath, {
+            title: audiobook.title, author: audiobook.author, narrator: audiobook.narrator, year: audiobook.year, asin: audiobook.asin,
+          }, outputPath, this.dirMode, logger ?? undefined);
+          if (converted.success && converted.outputPath) {
+            audioFiles.length = 0;
+            audioFiles.push(converted.outputPath);
+            tempMergedFile = converted.outputPath;
+            await logger?.info(`Converted to M4B — organizing the M4B`);
+          } else {
+            await logger?.warn(`MP3 → M4B conversion failed (${converted.error}) — importing the MP3`);
+            result.errors.push(`MP3 conversion failed: ${converted.error}`);
+          }
+        } catch (error) {
+          await logger?.warn(`MP3 → M4B conversion failed (${error instanceof Error ? error.message : String(error)}) — importing the MP3`);
         }
       } else {
         await logger?.info(`Single audio file detected - no chapter merging needed`);

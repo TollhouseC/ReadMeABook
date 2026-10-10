@@ -42,6 +42,10 @@ describe('listMergeableParts', () => {
     for (const f of ['a.ogg', 'b.ogg']) await fs.writeFile(path.join(other, f), 'x');
     expect(await listMergeableParts(other)).toMatchObject({ ok: false, reason: 'unsupported_format' });
   });
+  it('accepts a single MP3 (converted to M4B)', async () => {
+    await touch('Heir.mp3');
+    expect(await listMergeableParts(dir)).toEqual({ ok: true, format: '.mp3', parts: [path.join(dir, 'Heir.mp3')] });
+  });
 });
 
 describe('checkRuntime', () => {

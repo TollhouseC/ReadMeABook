@@ -15,7 +15,7 @@ export async function PUT(request: NextRequest) {
   return requireAuth(request, async (req: AuthenticatedRequest) => {
     return requireAdmin(req, async () => {
       try {
-        const { downloadDir, mediaDir, audiobookPathTemplate, ebookPathTemplate, metadataTaggingEnabled, chapterMergingEnabled, fileRenameEnabled, fileRenameTemplate, fileChmod, dirChmod } = await request.json();
+        const { downloadDir, mediaDir, audiobookPathTemplate, ebookPathTemplate, metadataTaggingEnabled, chapterMergingEnabled, convertSingleMp3Enabled, fileRenameEnabled, fileRenameTemplate, fileChmod, dirChmod } = await request.json();
 
         if (!downloadDir || !mediaDir) {
           return NextResponse.json(
@@ -112,6 +112,18 @@ export async function PUT(request: NextRequest) {
           },
         });
 
+        // Update single-MP3 conversion setting
+        await prisma.configuration.upsert({
+          where: { key: 'convert_single_mp3_enabled' },
+          update: { value: String(convertSingleMp3Enabled ?? false) },
+          create: {
+            key: 'convert_single_mp3_enabled',
+            value: String(convertSingleMp3Enabled ?? false),
+            category: 'automation',
+            description: 'Re-encode single-file MP3 downloads to M4B on import so they get chapters',
+          },
+        });
+
         // Update file rename setting
         await prisma.configuration.upsert({
           where: { key: 'file_rename_enabled' },
@@ -176,6 +188,7 @@ export async function PUT(request: NextRequest) {
         configService.clearCache('ebook_path_template');
         configService.clearCache('metadata_tagging_enabled');
         configService.clearCache('chapter_merging_enabled');
+        configService.clearCache('convert_single_mp3_enabled');
         configService.clearCache('file_rename_enabled');
         configService.clearCache('file_rename_template');
         configService.clearCache('file_chmod');

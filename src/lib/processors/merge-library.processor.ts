@@ -7,6 +7,7 @@
  *      .m4b), a duplicate set of parts, or unreadable leftovers — recognised against the
  *      book's Audible runtime. The best complete copy is kept (M4B > M4A > MP3, larger).
  *   2. If the kept copy is still split, merge it into one M4B in place (mp3/m4a → AAC).
+ *   3. A book that is a single MP3 is converted to M4B (merge-library-convert.ts).
  * Unexplained audio (could be a different book) is never deleted; such folders are left
  * alone and reported. `report` lists everything; `apply` does it. Cancel stops before the
  * next book or mid-ffmpeg (parts untouched).
@@ -25,6 +26,7 @@ import { isAudiobookshelfBackend, syncFileChaptersToABS } from '../services/abs-
 import { AUDIO_EXTENSIONS } from '../constants/audio-formats';
 import { collectCandidates, getMediaDir } from './fix-chapters.processor';
 import { handleCrossFolderDuplicates } from './merge-library-cross';
+import { handleSingleMp3 } from './merge-library-convert';
 
 const LOOKUP_DELAY_MS = 1000;
 const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
@@ -91,7 +93,7 @@ export async function processMergeLibrary(payload: MergeLibraryPayload) {
   const counts = {
     merged: 0, would_merge: 0, cleaned: 0, would_clean: 0, files_removed: 0, files_to_remove: 0,
     no_complete_copy: 0, unexplained_left: 0, no_runtime: 0, single_file: 0, failed: 0,
-    folders_removed: 0, folders_to_remove: 0, different_length_alerts: 0,
+    folders_removed: 0, folders_to_remove: 0, different_length_alerts: 0, would_convert: 0, converted: 0,
   };
 
   // Same book in several folders (e.g. author written "Last, First" vs "First Last")
@@ -120,7 +122,16 @@ export async function processMergeLibrary(payload: MergeLibraryPayload) {
 
       try {
         if ((await audioFileCount(folder)) < 2) {
-          counts.single_file++;
+          // A single MP3 → M4B; any other single file is already done
+          const single = await handleSingleMp3({ candidate, folder, apply, index, logger, progress });
+          if (single === 'cancelled') {
+            cancelled = true;
+            break;
+          }
+          if (single === 'would_convert') counts.would_convert++;
+          else if (single === 'converted') counts.converted++;
+          else if (single === 'unreadable') counts.failed++;
+          else counts.single_file++;
           continue;
         }
 
@@ -255,11 +266,12 @@ export async function processMergeLibrary(payload: MergeLibraryPayload) {
     (apply
       ? `cleaned ${counts.cleaned} book(s) (${counts.files_removed} duplicate file(s) removed), merged ${counts.merged}`
       : `would clean ${counts.would_clean} book(s) (${counts.files_to_remove} duplicate file(s)), would merge ${counts.would_merge}`) +
+    `, ${apply ? `converted ${counts.converted}` : `would convert ${counts.would_convert}`} single MP3(s) to M4B` +
     `, ${apply ? `duplicate folders removed ${counts.folders_removed}` : `duplicate folders to remove ${counts.folders_to_remove}`}` +
     `, different-length copies (alerts, not deleted) ${counts.different_length_alerts}` +
     `, no complete copy ${counts.no_complete_copy}, no Audible runtime ${counts.no_runtime}, ` +
     `failed ${counts.failed} (single-file books: ${counts.single_file})`
   );
-  if (counts.merged > 0 || counts.cleaned > 0 || counts.folders_removed > 0) await triggerLibraryScan(logger);
+  if (counts.merged > 0 || counts.cleaned > 0 || counts.folders_removed > 0 || counts.converted > 0) await triggerLibraryScan(logger);
   return { success: true, mode: apply ? 'apply' : 'report', checked: candidates.length, ...counts, ...(cancelled && CANCELLED_RESULT) };
 }

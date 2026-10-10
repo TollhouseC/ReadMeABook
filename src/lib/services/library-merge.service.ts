@@ -46,6 +46,8 @@ export async function listMergeableParts(folder: string): Promise<PartsCheck> {
     .filter(e => e.isFile() && (AUDIO_EXTENSIONS as readonly string[]).includes(path.extname(e.name).toLowerCase()))
     .map(e => path.join(folder, e.name))
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  // One MP3 → converted to M4B (no chapters possible otherwise)
+  if (audio.length === 1 && path.extname(audio[0]).toLowerCase() === '.mp3') return { ok: true, parts: audio, format: '.mp3' };
   if (audio.length < 2) return { ok: false, reason: 'single_file', detail: `${audio.length} audio file(s)` };
   const formats = new Set(audio.map(p => path.extname(p).toLowerCase()));
   if (formats.size > 1) return { ok: false, reason: 'mixed_formats', detail: [...formats].join(', ') };

@@ -112,6 +112,13 @@ const multiBookMock = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/utils/multi-book-guard', () => multiBookMock);
 
+// Single MP3 → M4B on import (covered in mp3-convert.test.ts)
+const mp3ConvertMock = vi.hoisted(() => ({
+  isMp3: (f: string) => f.toLowerCase().endsWith('.mp3'),
+  convertMp3ToM4b: vi.fn(),
+}));
+vi.mock('@/lib/utils/mp3-convert', () => mp3ConvertMock);
+
 // Existing series/author folder lookup: none by default (covered in series-home.test.ts)
 vi.mock('@/lib/utils/series-home', () => ({ findLibraryHome: vi.fn(async () => null) }));
 
@@ -162,6 +169,47 @@ describe('file organizer', () => {
     expect(result.filesMovedCount).toBe(1);
     expect(loggerMock.RMABLogger.forJob).toHaveBeenCalledWith('job-1', 'organize');
     expect(metadataMock.tagMultipleFiles).not.toHaveBeenCalled();
+  });
+
+  describe('single MP3 on import', () => {
+    const setup = () => {
+      configState.values.set('metadata_tagging_enabled', 'false');
+      configState.values.set('ebook_sidecar_enabled', 'false');
+      fsMock.stat.mockResolvedValue({ isFile: () => true });
+      fsMock.access.mockImplementation(async (p: string) => {
+        if (p === '/downloads/book.mp3' || path.normalize(p) === path.join('/tmp', 'Heir.m4b')) return undefined;
+        throw new Error('missing');
+      });
+      fsMock.mkdir.mockResolvedValue(undefined);
+      fsMock.unlink.mockResolvedValue(undefined);
+      copyFileMock.copyFile.mockResolvedValue(undefined);
+      fsMock.chmod.mockResolvedValue(undefined);
+    };
+    const run = () => new FileOrganizer('/media', '/tmp').organize('/downloads/book.mp3', { title: 'Heir', author: 'Someone', asin: 'B0H' }, '{author}/{title}');
+
+    it('converts to M4B when the setting is on', async () => {
+      setup();
+      configState.values.set('convert_single_mp3_enabled', 'true');
+      mp3ConvertMock.convertMp3ToM4b.mockResolvedValue({ success: true, outputPath: path.join('/tmp', 'Heir.m4b') });
+
+      const result = await run();
+
+      expect(mp3ConvertMock.convertMp3ToM4b).toHaveBeenCalledWith('/downloads/book.mp3', expect.objectContaining({ title: 'Heir', asin: 'B0H' }), path.join('/tmp', 'Heir.m4b'), expect.any(Number), undefined);
+      expect(result.success).toBe(true);
+      expect(result.audioFiles[0]).toMatch(/Heir\.m4b$/);
+    });
+
+    it('imports the MP3 as-is when the setting is off or conversion fails', async () => {
+      setup();
+      expect((await run()).audioFiles[0]).toMatch(/book\.mp3$/);
+      expect(mp3ConvertMock.convertMp3ToM4b).not.toHaveBeenCalled();
+
+      configState.values.set('convert_single_mp3_enabled', 'true');
+      mp3ConvertMock.convertMp3ToM4b.mockResolvedValue({ success: false, error: 'Duration mismatch' });
+      const failed = await run();
+      expect(failed.audioFiles[0]).toMatch(/book\.mp3$/);
+      expect(failed.errors.join(' ')).toContain('MP3 conversion failed: Duration mismatch');
+    });
   });
 
   describe('file already in the target folder', () => {

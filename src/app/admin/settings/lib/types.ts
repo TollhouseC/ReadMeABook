@@ -100,6 +100,8 @@ export interface PathsSettings {
   ebookPathTemplate?: string;
   metadataTaggingEnabled: boolean;
   chapterMergingEnabled: boolean;
+  /** Re-encode single-file MP3 downloads to M4B on import */
+  convertSingleMp3Enabled?: boolean;
   fileRenameEnabled: boolean;
   fileRenameTemplate?: string;
   fileChmod?: string;

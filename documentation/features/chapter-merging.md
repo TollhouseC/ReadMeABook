@@ -8,6 +8,13 @@ Automatically merge multi-file audiobook downloads (separate MP3/M4A files per c
 
 ## Recent Updates
 
+### v8 - Single MP3 → M4B (2026-10-10)
+- **Why:** a book that is one MP3 got no chapters (Chapter Fix handles M4B/M4A/MP4 only) and was never converted (merging needs 2+ parts).
+- **Conversion** (`src/lib/utils/mp3-convert.ts` `convertMp3ToM4b`): `analyzeChapterFiles([mp3])` → `mergeChapters` (AAC at the source bitrate via `determineOutputBitrate`, chapters Audnexus → embedded → one, tags) → `validateMergedFile` (length within 2%, first/last 10s decode) before anything replaces the MP3.
+- **Library Merge:** folders with exactly one MP3 → report `Would convert "<title>": <file> (<length>) → M4B — re-encode MP3 → AAC, about N min` (`estimateConvertMinutes` ≈ length/50); apply → `mergeFolderInPlace({ parts: [mp3] })` (temp encode → `.partial` → swap → MP3 removed → `Audiobook` file info + ABS chapters). Counts `would_convert` / `converted`; unreadable MP3 → failed. Cancel leaves the MP3 (`src/lib/processors/merge-library-convert.ts`).
+- **Per book:** `listMergeableParts` accepts a single MP3 → "Merge into single M4B" converts it.
+- **Import:** setting `convert_single_mp3_enabled` (Settings → Paths, "Convert single MP3 files to M4B on import", default off; `convertSingleMp3Enabled` in `PUT /api/admin/settings/paths`). Single MP3 download → converted in the temp dir and the M4B imported; on failure the MP3 is imported and the error noted. Download never changed.
+
 ### v7 - Library-Wide Merge + 2-File Imports (2026-10-09)
 
 - **Shared core:** `src/lib/services/library-merge.service.ts` → `listMergeableParts(folder)` (≥2 top-level audio files, same format in `CHAPTER_MERGE_FORMATS`; natural order), `totalDurationMs`, `checkRuntime(totalMs, asin)` (Audible/Audnexus runtime, tolerance max(3%, 2 min); null = unknown), `mergeFolderInPlace(...)` (temp merge → tag → `.partial` copy → size check → rename → delete parts → update Audiobook file info → push chapters to ABS). Used by the per-book Merge action (runtime mismatch = warning only) and the library job.

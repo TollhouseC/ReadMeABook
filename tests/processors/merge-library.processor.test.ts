@@ -185,6 +185,24 @@ describe('processMergeLibrary', () => {
     expect(await fs.readdir(empire)).toEqual(['Empire of Silence - 01.m4b']); // the real copy stays
   });
 
+  it('converts a book that is a single MP3 to M4B (report lists it, apply converts it)', async () => {
+    const mp3 = await book('Heir', { 'Heir.mp3': 10 });
+    mocks.collectCandidates.mockResolvedValue([
+      { title: 'Heir', asin: 'A9', folder: mp3, author: 'Someone', audiobookId: 'ab-heir', absItemId: 'abs-heir' },
+      { title: 'Single', asin: 'A5', folder: path.join(root, 'Single') },
+    ]);
+
+    expect(await run('report')).toMatchObject({ would_convert: 1, single_file: 1, converted: 0 });
+    expect(mocks.mergeFolderInPlace).not.toHaveBeenCalled();
+
+    mocks.mergeFolderInPlace.mockResolvedValue({ status: 'merged', finalPath: 'x', finalName: 'Heir.m4b', chapterCount: 30, sizeBytes: 1 });
+    expect(await run('apply')).toMatchObject({ converted: 1, single_file: 1 });
+    expect(mocks.mergeFolderInPlace).toHaveBeenCalledWith(expect.objectContaining({
+      folder: mp3, parts: [path.join(mp3, 'Heir.mp3')], audiobookId: 'ab-heir', absItemId: 'abs-heir',
+    }));
+    expect(mocks.triggerLibraryScan).toHaveBeenCalled();
+  });
+
   it('leaves folders alone when no complete copy matches the book', async () => {
     mocks.checkRuntime.mockResolvedValue({ expectedMs: 40 * H, matches: null });
     const result = await run('apply');

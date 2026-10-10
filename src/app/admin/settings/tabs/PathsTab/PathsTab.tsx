@@ -437,6 +437,27 @@ export function PathsTab({ paths, onChange, onValidationChange }: PathsTabProps)
             </p>
           </div>
         </div>
+        <div className="flex items-start gap-4 mt-4">
+          <input
+            type="checkbox"
+            id="convert-single-mp3-settings"
+            checked={!!paths.convertSingleMp3Enabled}
+            onChange={(e) => updatePath('convertSingleMp3Enabled', e.target.checked)}
+            className="mt-1 h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div className="flex-1">
+            <label
+              htmlFor="convert-single-mp3-settings"
+              className="block text-sm font-medium text-gray-900 dark:text-gray-100 cursor-pointer"
+            >
+              Convert single MP3 files to M4B on import
+            </label>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+              Re-encode a download that is one MP3 file into an M4B with chapters (Audnexus when available).
+              Slower imports (about 1 minute per hour of audio); the original download is never changed.
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* File Permissions */}
