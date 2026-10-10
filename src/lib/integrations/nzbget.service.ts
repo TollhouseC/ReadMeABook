@@ -4,6 +4,7 @@
  */
 
 import axios, { AxiosInstance } from 'axios';
+import { fetchSourceFile, SourceFetchError } from '../utils/fetch-source-file';
 import https from 'https';
 import zlib from 'zlib';
 import { RMABLogger } from '@/lib/utils/logger';
@@ -222,12 +223,12 @@ export class NZBGetService implements IDownloadClient {
     try {
       logger.info('Downloading NZB file from source URL...');
 
-      const nzbResponse = await axios.get(url, {
-        responseType: 'arraybuffer',
-        timeout: 30000,
-        maxRedirects: 5,
+      // Prowlarr API key goes only to Prowlarr's host, never across a redirect to the indexer
+      // (indexers like NZBFinder 403 a foreign X-Api-Key); 401/403 retried once without it
+      const nzbResponse = await fetchSourceFile(url, {
         headers: options?.sourceHeaders,
-        httpsAgent: url.startsWith('https') ? this.httpsAgent : undefined,
+        httpsAgent: this.httpsAgent,
+        timeout: 30000,
       });
 
       nzbBuffer = Buffer.from(nzbResponse.data);
@@ -247,6 +248,9 @@ export class NZBGetService implements IDownloadClient {
       }
       filename = this.extractNZBFilename(url, nzbResponse.headers['content-disposition']);
     } catch (error) {
+      if (error instanceof SourceFetchError) {
+        throw new Error(`Failed to download NZB file: ${error.message}`);
+      }
       if (axios.isAxiosError(error)) {
         const status = error.response?.status;
         if (status) {
