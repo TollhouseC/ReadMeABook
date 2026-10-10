@@ -11,7 +11,7 @@ import { enrichAudiobooksWithMatches } from '@/lib/utils/audiobook-matcher';
 import { deduplicateAndCollectGroups } from '@/lib/utils/deduplicate-audiobooks';
 import { persistDedupGroups } from '@/lib/services/works.service';
 import { annotateWithIgnoreStatus } from '@/lib/utils/ignored-audiobooks';
-import { findReplacementSeries, isArchivedSeriesTitle, moveToReplacementSeries } from '@/lib/services/archived-series';
+import { getSavedReplacement, isArchivedSeriesTitle } from '@/lib/services/archived-series';
 
 const logger = RMABLogger.create('API.Series.Detail');
 
@@ -45,6 +45,12 @@ export async function GET(
 
     logger.info(`Fetching series detail: ${asin}, page ${page}`);
 
+    // Audible archived this series and its replacement is already known → redirect at once
+    const saved = page === 1 ? await getSavedReplacement(asin) : null;
+    if (saved) {
+      return NextResponse.json({ success: true, movedTo: saved, series: null, hasMore: false, page: 1 });
+    }
+
     const detail = await scrapeSeriesPage(asin, page);
     if (!detail) {
       return NextResponse.json(
@@ -53,21 +59,10 @@ export async function GET(
       );
     }
 
-    // Audible archived (emptied) this series → send the client to its replacement and move
-    // watches / book links over
+    // Audible archived (emptied) this series → answer now; the page looks for the replacement
+    // separately (POST /api/series/{asin}/replacement) while showing a notice
     if (page === 1 && (isArchivedSeriesTitle(detail.title) || detail.books.length === 0)) {
-      const replacement = await findReplacementSeries(asin, detail.title).catch(() => null);
-      if (replacement) {
-        await moveToReplacementSeries(asin, replacement, logger).catch(error =>
-          logger.warn(`Could not move watches to ${replacement.asin}: ${error instanceof Error ? error.message : String(error)}`));
-        return NextResponse.json({
-          success: true,
-          movedTo: { ...replacement, from: detail.title },
-          series: { ...detail, books: [] },
-          hasMore: false,
-          page: 1,
-        });
-      }
+      return NextResponse.json({ success: true, archived: true, series: { ...detail, books: [] }, hasMore: false, page: 1 });
     }
 
     // Deduplicate before enrichment to avoid wasted DB queries on duplicate entries

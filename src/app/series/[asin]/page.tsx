@@ -5,7 +5,7 @@
 
 'use client';
 
-import { use, useCallback, useEffect, useMemo } from 'react';
+import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Header } from '@/components/layout/Header';
 import { AudiobookGrid } from '@/components/audiobooks/AudiobookGrid';
@@ -17,6 +17,9 @@ import { Audiobook } from '@/lib/hooks/useAudiobooks';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { SectionToolbar } from '@/components/ui/SectionToolbar';
 import { usePreferences } from '@/contexts/PreferencesContext';
+import { fetchJSON } from '@/lib/utils/api';
+
+type Replacement = { asin: string; title: string; from: string };
 
 export default function SeriesDetailPage({
   params,
@@ -28,14 +31,31 @@ export default function SeriesDetailPage({
   const searchParams = useSearchParams();
   const fromSeriesTitle = searchParams.get('from');
   const movedFrom = searchParams.get('movedFrom');
-  const { series, hasMore, isLoading: seriesLoading, isLoadingMore, loadMore, movedTo } = useSeriesDetail(asin);
+  const { series, hasMore, isLoading: seriesLoading, isLoadingMore, loadMore, movedTo, archived } = useSeriesDetail(asin);
+  const [lookup, setLookup] = useState<'idle' | 'searching' | 'none'>('idle');
+  const lookupStarted = useRef<string | null>(null);
 
-  // Audible archived this series → go to the series that replaced it
+  const goTo = useCallback((target: Replacement) => {
+    router.replace(`/series/${target.asin}?movedFrom=${encodeURIComponent(target.from)}`);
+  }, [router]);
+
+  // Audible archived this series → go to the series that replaced it (known, or looked up now)
   useEffect(() => {
     if (movedTo && movedTo.asin !== asin) {
-      router.replace(`/series/${movedTo.asin}?movedFrom=${encodeURIComponent(movedTo.from)}`);
+      goTo(movedTo);
+      return;
     }
-  }, [movedTo, asin, router]);
+    if (!archived || lookupStarted.current === asin) return;
+    lookupStarted.current = asin;
+    setLookup('searching');
+    fetchJSON<{ movedTo: Replacement | null }>(`/api/series/${asin}/replacement`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: series?.title ?? '' }),
+    })
+      .then(result => (result.movedTo ? goTo(result.movedTo) : setLookup('none')))
+      .catch(() => setLookup('none'));
+  }, [movedTo, archived, asin, series?.title, goTo]);
   const { cardSize, setCardSize, squareCovers, setSquareCovers, hideAvailable, setHideAvailable } = usePreferences();
 
   const handleBack = useCallback(() => {
@@ -82,6 +102,24 @@ export default function SeriesDetailPage({
             {fromSeriesTitle ? `Back to ${fromSeriesTitle}` : 'Back to Series'}
           </button>
 
+          {(movedTo || lookup === 'searching') && (
+            <div className="flex items-center gap-3 rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 px-4 py-3 text-sm text-blue-800 dark:text-blue-200">
+              <svg className="h-4 w-4 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+              </svg>
+              {movedTo
+                ? <>Audible moved this series to &ldquo;{movedTo.title}&rdquo; — taking you there…</>
+                : <>Audible archived this series — finding the series that replaced it and updating watches…</>}
+            </div>
+          )}
+
+          {lookup === 'none' && (
+            <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
+              Audible archived this series and no replacement was found — search for the series and watch it by hand.
+            </div>
+          )}
+
           {movedFrom && (
             <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
               Audible moved this series here from &ldquo;{movedFrom}&rdquo;. Watches and book links were updated.
@@ -89,7 +127,7 @@ export default function SeriesDetailPage({
           )}
 
           {/* Series Detail Card */}
-          {seriesLoading ? (
+          {seriesLoading || movedTo ? (
             <SeriesDetailSkeleton squareCovers={squareCovers} />
           ) : series ? (
             <SeriesDetailCard series={series} squareCovers={squareCovers} />

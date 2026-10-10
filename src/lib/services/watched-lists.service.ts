@@ -9,7 +9,7 @@
  */
 
 import { prisma } from '@/lib/db';
-import { findReplacementSeries, isArchivedSeriesTitle, moveToReplacementSeries } from './archived-series';
+import { followArchivedSeries, isArchivedSeriesTitle } from './archived-series';
 import { getAudibleService, AudibleAudiobook } from '@/lib/integrations/audible.service';
 import { scrapeSeriesPage } from '@/lib/integrations/audible-series';
 import { deduplicateAndCollectGroups } from '@/lib/utils/deduplicate-audiobooks';
@@ -201,9 +201,8 @@ async function processSeriesForUsers(
 
   // Audible archived (emptied) this series → follow it to its replacement, once
   if (!followedArchive && (allBooks.length === 0 || isArchivedSeriesTitle(scrapedTitle))) {
-    const replacement = await findReplacementSeries(seriesAsin, scrapedTitle || title).catch(() => null);
+    const replacement = await followArchivedSeries(seriesAsin, scrapedTitle || title, log).catch(() => null);
     if (replacement) {
-      await moveToReplacementSeries(seriesAsin, replacement, log);
       const moved = subscriptions.map(s => ({ ...s, seriesTitle: replacement.title }));
       return processSeriesForUsers(replacement.asin, moved, log, stats, true);
     }

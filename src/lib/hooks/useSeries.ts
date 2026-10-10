@@ -105,8 +105,9 @@ export function useSeriesDetail(asin: string | null) {
     : null;
 
   const hasMore = !!(data && data.length > 0 && data[data.length - 1]?.hasMore);
-  // Audible archived this series and the server found its replacement
+  // Audible archived this series: replacement already known (movedTo) or still to be looked up (archived)
   const movedTo = (data?.[0]?.movedTo ?? null) as { asin: string; title: string; from: string } | null;
+  const archived = !!data?.[0]?.archived;
   const isLoadingInitial = !data && !error && !!asin;
   const isLoadingMore = !!(data && typeof data[size - 1] === 'undefined' && isValidating);
 
@@ -122,5 +123,6 @@ export function useSeriesDetail(asin: string | null) {
     loadMore,
     error,
     movedTo,
+    archived,
   };
 }

@@ -87,3 +87,46 @@ describe('moveToReplacementSeries', () => {
     expect(prismaMock.upcomingRelease.deleteMany).toHaveBeenCalledWith({ where: { sourceAsin: OLD } });
   });
 });
+
+describe('followArchivedSeries (remembered lookups)', () => {
+  const setupMove = () => {
+    prismaMock.watchedSeries.findMany.mockResolvedValue([]);
+    prismaMock.audiobook.updateMany.mockResolvedValue({ count: 0 });
+    prismaMock.upcomingRelease.deleteMany.mockResolvedValue({ count: 0 });
+  };
+
+  it('finds, saves and applies a replacement the first time', async () => {
+    const { followArchivedSeries } = await load();
+    setupMove();
+    prismaMock.configuration.findUnique.mockResolvedValue(null);
+    prismaMock.configuration.upsert.mockResolvedValue({});
+    prismaMock.audiobook.findMany.mockResolvedValue([{ audibleAsin: 'B003XX5CCM' }]);
+    mocks.getProductsByAsins.mockResolvedValue([{ asin: 'B003XX5CCM', title: 'Shadows Linger', series: NEW.title, seriesAsin: NEW.asin }]);
+
+    expect(await followArchivedSeries(OLD, 'Black Company [ARCHIVED]')).toEqual({ ...NEW, from: 'Black Company [ARCHIVED]' });
+    expect(prismaMock.configuration.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { key: `series_replacement:${OLD}` },
+      create: expect.objectContaining({ value: JSON.stringify({ ...NEW, from: 'Black Company [ARCHIVED]' }) }),
+    }));
+    expect(prismaMock.audiobook.updateMany).toHaveBeenCalledWith({ where: { seriesAsin: OLD }, data: { seriesAsin: NEW.asin } });
+  });
+
+  it('reuses a saved replacement without asking Audible again', async () => {
+    const { followArchivedSeries, getSavedReplacement } = await load();
+    setupMove();
+    const saved = { ...NEW, from: 'Black Company [ARCHIVED]' };
+    prismaMock.configuration.findUnique.mockResolvedValue({ value: JSON.stringify(saved) });
+
+    expect(await getSavedReplacement(OLD)).toEqual(saved);
+    expect(await followArchivedSeries(OLD, 'Black Company [ARCHIVED]')).toEqual(saved);
+    expect(mocks.getProductsByAsins).not.toHaveBeenCalled();
+    expect(prismaMock.configuration.upsert).not.toHaveBeenCalled();
+  });
+
+  it('returns null when nothing replaced it', async () => {
+    const { followArchivedSeries } = await load();
+    prismaMock.configuration.findUnique.mockResolvedValue(null);
+    prismaMock.audiobook.findMany.mockResolvedValue([]);
+    expect(await followArchivedSeries(OLD, 'Black Company [ARCHIVED]')).toBeNull();
+  });
+});

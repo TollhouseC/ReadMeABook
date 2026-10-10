@@ -69,12 +69,10 @@ vi.mock('@/lib/utils/audiobook-matcher', () => ({
 }));
 
 // Archived series: no replacement by default
-const mockFindReplacementSeries = vi.fn();
-const mockMoveToReplacementSeries = vi.fn();
+const mockFollowArchivedSeries = vi.fn();
 vi.mock('@/lib/services/archived-series', () => ({
   isArchivedSeriesTitle: (t?: string) => !!t && t.toLowerCase().includes('[archived]'),
-  findReplacementSeries: (...args: any[]) => mockFindReplacementSeries(...args),
-  moveToReplacementSeries: (...args: any[]) => mockMoveToReplacementSeries(...args),
+  followArchivedSeries: (...args: any[]) => mockFollowArchivedSeries(...args),
 }));
 
 describe('processWatchedLists', () => {
@@ -86,8 +84,7 @@ describe('processWatchedLists', () => {
     prismaMock.plexLibrary.findMany.mockResolvedValue([]);
     mockGetSiblingAsins.mockResolvedValue(new Map());
     mockPersistDedupGroups.mockResolvedValue(undefined);
-    mockFindReplacementSeries.mockResolvedValue(null);
-    mockMoveToReplacementSeries.mockResolvedValue(1);
+    mockFollowArchivedSeries.mockResolvedValue(null);
   });
 
   it('follows a series Audible archived to its replacement and moves the watch', async () => {
@@ -101,15 +98,14 @@ describe('processWatchedLists', () => {
     mockScrapeSeriesPage.mockImplementation(async (asin: string) => (asin === 'B005NBPHB8'
       ? { asin, title: 'Black Company [ARCHIVED]', bookCount: 0, books: [], hasMore: false, page: 1 }
       : { asin, title: 'Chronicles of the Black Company', bookCount: 1, books: [book], hasMore: false, page: 1 }));
-    mockFindReplacementSeries.mockResolvedValue({ asin: 'B0H363Q436', title: 'Chronicles of the Black Company' });
+    mockFollowArchivedSeries.mockResolvedValue({ asin: 'B0H363Q436', title: 'Chronicles of the Black Company', from: 'Black Company [ARCHIVED]' });
     mockDeduplicateAndCollectGroups.mockReturnValue({ books: [book], groups: [] });
     mockCreateRequestForUser.mockResolvedValue({ success: true, request: {} });
 
     const { processWatchedLists } = await import('@/lib/services/watched-lists.service');
     const stats = await processWatchedLists();
 
-    expect(mockFindReplacementSeries).toHaveBeenCalledWith('B005NBPHB8', 'Black Company [ARCHIVED]');
-    expect(mockMoveToReplacementSeries).toHaveBeenCalledWith('B005NBPHB8', { asin: 'B0H363Q436', title: 'Chronicles of the Black Company' }, expect.anything());
+    expect(mockFollowArchivedSeries).toHaveBeenCalledWith('B005NBPHB8', 'Black Company [ARCHIVED]', expect.anything());
     expect(mockScrapeSeriesPage).toHaveBeenCalledWith('B0H363Q436', 1);
     expect(stats.booksFound).toBe(1);
   });

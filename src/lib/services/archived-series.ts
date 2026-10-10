@@ -64,6 +64,50 @@ export async function findReplacementSeries(archivedAsin: string, archivedTitle:
   return found.length === 1 ? { asin: found[0].asin, title: found[0].title } : null;
 }
 
+export interface SavedReplacement extends ReplacementSeries {
+  /** Title of the archived series */
+  from: string;
+}
+
+const savedKey = (asin: string) => `series_replacement:${asin}`;
+
+/** A replacement found earlier (old series ASIN → new series), so later visits redirect instantly. */
+export async function getSavedReplacement(archivedAsin: string): Promise<SavedReplacement | null> {
+  try {
+    const row = await prisma.configuration.findUnique({ where: { key: savedKey(archivedAsin) } });
+    const saved = row?.value ? JSON.parse(row.value) : null;
+    return saved?.asin && saved?.title ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
+async function saveReplacement(archivedAsin: string, saved: SavedReplacement): Promise<void> {
+  const value = JSON.stringify(saved);
+  await prisma.configuration.upsert({
+    where: { key: savedKey(archivedAsin) },
+    create: { key: savedKey(archivedAsin), value, category: 'system', description: 'Audible archived this series; replaced by the series in value' },
+    update: { value },
+  });
+}
+
+/**
+ * Saved replacement, or find one (then save it); either way watches and book links are
+ * moved over. Null when no replacement can be found.
+ */
+export async function followArchivedSeries(archivedAsin: string, archivedTitle: string, log?: Log): Promise<SavedReplacement | null> {
+  let saved = await getSavedReplacement(archivedAsin);
+  if (!saved) {
+    const found = await findReplacementSeries(archivedAsin, archivedTitle);
+    if (!found) return null;
+    saved = { ...found, from: archivedTitle };
+    await saveReplacement(archivedAsin, saved).catch(error =>
+      log?.warn(`Could not save series replacement: ${error instanceof Error ? error.message : String(error)}`));
+  }
+  await moveToReplacementSeries(archivedAsin, saved, log);
+  return saved;
+}
+
 /**
  * Point everything at the replacement series: watches (an existing watch on the new series
  * wins — the old one is removed), book series links, and the old series' upcoming releases.
@@ -83,6 +127,7 @@ export async function moveToReplacementSeries(archivedAsin: string, replacement:
   }
   const books = await prisma.audiobook.updateMany({ where: { seriesAsin: archivedAsin }, data: { seriesAsin: replacement.asin } });
   await prisma.upcomingRelease.deleteMany({ where: { sourceAsin: archivedAsin } });
+  if (watches.length === 0 && books.count === 0) return 0;
   await log?.info(
     `Series ${archivedAsin} was archived on Audible — replaced by "${replacement.title}" (${replacement.asin}): ` +
     `${moved} watch(es) moved, ${watches.length - moved} duplicate watch(es) removed, ${books.count} book link(s) updated`
