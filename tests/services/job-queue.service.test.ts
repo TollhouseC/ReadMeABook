@@ -46,6 +46,7 @@ const queueMock = vi.hoisted(() => ({
   getJobCounts: vi.fn(),
   getActive: vi.fn(),
   getJob: vi.fn(),
+  getJobs: vi.fn(),
   pause: vi.fn(),
   resume: vi.fn(),
   close: vi.fn(),
@@ -543,6 +544,42 @@ describe('JobQueueService', () => {
         data: expect.objectContaining({ downloadStatus: 'failed' }),
       })
     );
+  });
+
+  it('redoes the import when Bull gives up on a stalled organize job (container restart mid-merge)', async () => {
+    prismaMock.request.findUnique.mockResolvedValue({ status: 'processing' });
+    prismaMock.request.update.mockResolvedValue({});
+    prismaMock.job.updateMany.mockResolvedValue({ count: 1 });
+
+    const { JobQueueService } = await import('@/lib/services/job-queue.service');
+    const service = new JobQueueService();
+    const retrySpy = vi.spyOn(service, 'addRetryFailedImportsJob').mockResolvedValue('job-r');
+    const handlers = Object.fromEntries(queueMock.on.mock.calls.map(([event, handler]) => [event, handler]));
+
+    await handlers.failed({ id: 'bull-20', name: 'organize_files', data: { requestId: 'req-fol' } }, new Error('job stalled more than allowable limit'));
+
+    expect(prismaMock.request.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'req-fol' },
+      data: expect.objectContaining({ status: 'awaiting_import' }),
+    }));
+    expect(retrySpy).toHaveBeenCalled();
+  });
+
+  it('leaves ordinary organize failures to the organize processor', async () => {
+    const { JobQueueService } = await import('@/lib/services/job-queue.service');
+    new JobQueueService();
+    const handlers = Object.fromEntries(queueMock.on.mock.calls.map(([event, handler]) => [event, handler]));
+    await handlers.failed({ id: 'bull-21', name: 'organize_files', data: { requestId: 'req-x' } }, new Error('No audiobook files found'));
+    expect(prismaMock.request.update).not.toHaveBeenCalled();
+  });
+
+  it('finds a queued job of a type for a request', async () => {
+    queueMock.getJobs.mockResolvedValue([{ name: 'organize_files', data: { requestId: 'req-1' } }, null]);
+    const { JobQueueService } = await import('@/lib/services/job-queue.service');
+    const service = new JobQueueService();
+    expect(await service.hasQueuedJob('organize_files', 'req-1')).toBe(true);
+    expect(await service.hasQueuedJob('organize_files', 'req-2')).toBe(false);
+    expect(await service.hasQueuedJob('monitor_download', 'req-1')).toBe(false);
   });
 
   it('updates database fields for completed jobs', async () => {

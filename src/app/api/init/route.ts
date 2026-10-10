@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSchedulerService } from '@/lib/services/scheduler.service';
 import { runCredentialMigration } from '@/lib/services/credential-migration.service';
+import { scheduleStartupRecovery } from '@/lib/services/interrupted-imports';
 import { RMABLogger } from '@/lib/utils/logger';
 
 const logger = RMABLogger.create('API.Init');
@@ -25,6 +26,9 @@ export async function GET(request: NextRequest) {
     // Initialize scheduler service
     const schedulerService = getSchedulerService();
     await schedulerService.start();
+
+    // Imports killed by the restart (request stuck in 'processing') → redo from the finished download
+    if (scheduleStartupRecovery(logger)) logger.info('Interrupted import check scheduled');
 
     logger.info('Application services initialized successfully');
 

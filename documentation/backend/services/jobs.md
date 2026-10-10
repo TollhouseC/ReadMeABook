@@ -176,7 +176,15 @@ queue.on('stalled', async (job) => {
 - **scan_plex:** 1 (only one scan at a time)
 - **match_plex:** 3 (CPU bound)
 
+## Interrupted Import Recovery
+- `src/lib/services/interrupted-imports.ts`. A restart mid-import (long merge) left the request in 'processing' forever.
+- **Startup** (`/api/init` → `scheduleStartupRecovery`, once per process via globalThis flag): after `STARTUP_RECOVERY_DELAY_MS` (90s, Bull's stalled check re-queues jobs it will re-run first), `recoverInterruptedImports({ olderThanMs: 60s })`.
+- **Bull gives up** on a stalled `organize_files` job (`failed` handler, error contains "stalled") and the request is still 'processing' → `requeueImport` + Retry Failed Imports.
+- **Midnight** (`retry_missing_torrents`): same recovery for 'processing' >8h.
+- `recoverInterruptedImports`: 'processing' requests (≤50) → skip if `jobQueue.hasQueuedJob('organize_files', id)` (Bull active/waiting/delayed/paused); no selected download → `needsSearch`; else `requeueImport` = request → 'awaiting_import' (errorMessage = reason), its open `organize_files` job rows → failed; then one `addRetryFailedImportsJob()`.
+
 ## Fixed Issues ✅
+- **2026-10-10:** Fall of Light stuck in 'processing' after a container restart during its merge — nothing recovered interrupted imports (the midnight safety net also returned early when no request awaited search, and would have re-downloaded). Now recovered at startup / on stall / at midnight by redoing the import.
 
 - ✅ Monitor job logging excessively (~500x/s) → 10s delay
 - ✅ No retry for missing torrents → 'awaiting_search' status

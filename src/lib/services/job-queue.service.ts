@@ -348,6 +348,23 @@ export class JobQueueService {
         }
       }
 
+      // Import killed by a restart and given up on by Bull ("job stalled more than allowable
+      // limit") — the request would sit in 'processing' forever; redo the import instead
+      if (job.name === 'organize_files' && job.data && /stalled/i.test(error.message || '')) {
+        const { requestId } = job.data as OrganizeFilesPayload;
+        try {
+          const request = await prisma.request.findUnique({ where: { id: requestId }, select: { status: true } });
+          if (request?.status === 'processing') {
+            const { requeueImport } = await import('./interrupted-imports');
+            await requeueImport(requestId, 'Import interrupted (job stalled) — retrying from the finished download');
+            await this.addRetryFailedImportsJob();
+            logger.warn(`Organize job for request ${requestId} stalled out — import queued again`);
+          }
+        } catch (requeueError) {
+          logger.error('Failed to re-queue stalled import', { error: requeueError instanceof Error ? requeueError.message : String(requeueError) });
+        }
+      }
+
       // Safety net for download_torrent: if the processor skipped marking the
       // request as failed (e.g. connection error with Bull retries), ensure the
       // request is marked failed after all retries are exhausted.
@@ -1139,6 +1156,15 @@ export class JobQueueService {
     return await prisma.job.findUnique({
       where: { id: jobId },
     });
+  }
+
+  /**
+   * Whether Bull still holds a waiting/active/delayed job of this type for the request
+   * (incl. a stalled job it will re-run after a restart)
+   */
+  async hasQueuedJob(type: JobType, requestId: string): Promise<boolean> {
+    const jobs = await this.queue.getJobs(['active', 'waiting', 'delayed', 'paused']);
+    return jobs.some(job => job?.name === type && (job.data as { requestId?: string })?.requestId === requestId);
   }
 
   /**

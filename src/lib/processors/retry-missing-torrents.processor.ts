@@ -35,14 +35,7 @@ export async function processRetryMissingTorrents(payload: RetryMissingTorrentsP
 
     logger.info(`Found ${requests.length} requests awaiting search`);
 
-    if (requests.length === 0) {
-      return {
-        success: true,
-        message: 'No requests awaiting search',
-        triggered: 0,
-      };
-    }
-
+    // No early return when nothing awaits search — the stuck-request recovery below must still run
     // Trigger appropriate search job for each request based on type
     // Throttle: 100ms delay between jobs to avoid connection pool burst
     const jobQueue = getJobQueueService();
@@ -87,18 +80,22 @@ export async function processRetryMissingTorrents(payload: RetryMissingTorrentsP
     //  - 'downloading': monitor bumps updatedAt at least every 5 min → 2h means dead.
     //  - 'processing': chapter-merging a long audiobook can run for hours without an
     //    updatedAt bump (max merge timeout ~4.2h), so use 8h to never interrupt a
-    //    valid in-progress merge.
+    //    valid in-progress merge. Those with a finished download only redo the import
+    //    (recoverInterruptedImports); only the rest are searched again.
     const requeueStuck = async (
       status: 'downloading' | 'processing',
-      cutoffMs: number
+      cutoffMs: number,
+      onlyIds?: string[]
     ): Promise<number> => {
       const cutoff = new Date(Date.now() - cutoffMs);
+      if (onlyIds && onlyIds.length === 0) return 0;
 
       const stuck = await prisma.request.findMany({
         where: {
           status,
           deletedAt: null,
           updatedAt: { lt: cutoff },
+          ...(onlyIds && { id: { in: onlyIds } }),
         },
         include: { audiobook: true },
         take: 50,
@@ -146,7 +143,17 @@ export async function processRetryMissingTorrents(payload: RetryMissingTorrentsP
     };
 
     const stuckRequeued = await requeueStuck('downloading', 2 * 60 * 60 * 1000); // 2 hours
-    const stuckProcessingRequeued = await requeueStuck('processing', 8 * 60 * 60 * 1000); // 8 hours
+    const PROCESSING_STUCK_MS = 8 * 60 * 60 * 1000; // 8 hours
+    const { recoverInterruptedImports } = await import('../services/interrupted-imports');
+    const imports = await recoverInterruptedImports(logger, {
+      olderThanMs: PROCESSING_STUCK_MS,
+      reason: 'Import stuck in processing for 8h — retrying from the finished download',
+    }).catch(error => {
+      logger.error(`Interrupted import recovery failed: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    });
+    const stuckImportsRequeued = imports?.requeued ?? 0;
+    const stuckProcessingRequeued = imports ? await requeueStuck('processing', PROCESSING_STUCK_MS, imports.needsSearch) : 0;
 
     return {
       success: true,
@@ -154,6 +161,7 @@ export async function processRetryMissingTorrents(payload: RetryMissingTorrentsP
       totalRequests: requests.length,
       triggered,
       stuckRequeued,
+      stuckImportsRequeued,
       stuckProcessingRequeued,
     };
   } catch (error) {
