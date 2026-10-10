@@ -7,12 +7,14 @@
  * is set to *redirect* an indexer's downloads, the key must not follow the redirect: the
  * indexer (e.g. NZBFinder) reads X-Api-Key as its own key and answers 403. So redirects are
  * followed by hand and headers go only to the original host; a 401/403 is retried once
- * without headers; errors name the host that refused.
+ * without headers; errors name the host that refused. Requests identify as ReadMeABook —
+ * NZBFinder (Cloudflare) answers 403 to the default "axios/x" user agent.
  */
 
 import axios from 'axios';
 
 const MAX_REDIRECTS = 5;
+export const SOURCE_USER_AGENT = 'ReadMeABook/1.0';
 
 export class SourceFetchError extends Error {
   constructor(message: string, readonly status?: number, readonly host?: string) {
@@ -49,7 +51,7 @@ async function fetchOnce(
       timeout: options.timeout,
       maxRedirects: 0,
       validateStatus: () => true,
-      headers: hostOf(current) === originHost ? headers : undefined,
+      headers: { 'User-Agent': SOURCE_USER_AGENT, ...(hostOf(current) === originHost ? headers : {}) },
       httpsAgent: current.startsWith('https') ? (options.httpsAgent as any) : undefined,
     });
     const status = response.status ?? 200;

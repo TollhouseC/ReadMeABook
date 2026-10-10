@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const axiosMock = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock('axios', () => ({ default: axiosMock, ...axiosMock }));
 
-import { fetchSourceFile, SourceFetchError } from '@/lib/utils/fetch-source-file';
+import { fetchSourceFile, SourceFetchError, SOURCE_USER_AGENT } from '@/lib/utils/fetch-source-file';
 
 const PROWLARR = 'http://10.0.0.100:9696/12/download?apikey=k&link=abc&file=Mad+Mabel';
 const NZBFINDER = 'https://nzbfinder.ws/api/v1/getnzb?id=1&apikey=indexer';
@@ -26,9 +26,9 @@ describe('fetchSourceFile', () => {
     const result = await fetchSourceFile(PROWLARR, { headers: KEY });
 
     expect(axiosMock.get.mock.calls[0][0]).toBe(PROWLARR);
-    expect(axiosMock.get.mock.calls[0][1].headers).toEqual(KEY);
+    expect(axiosMock.get.mock.calls[0][1].headers).toEqual({ 'User-Agent': SOURCE_USER_AGENT, ...KEY });
     expect(axiosMock.get.mock.calls[1][0]).toBe(NZBFINDER);
-    expect(axiosMock.get.mock.calls[1][1].headers).toBeUndefined();
+    expect(axiosMock.get.mock.calls[1][1].headers).toEqual({ 'User-Agent': SOURCE_USER_AGENT }); // no Prowlarr key
     expect(result).toMatchObject({ finalUrl: NZBFINDER, redirects: 1 });
     expect(result.data.toString()).toBe('nzb');
   });
@@ -37,14 +37,14 @@ describe('fetchSourceFile', () => {
     axiosMock.get.mockResolvedValueOnce(ok());
     await fetchSourceFile(PROWLARR, { headers: KEY });
     expect(axiosMock.get).toHaveBeenCalledTimes(1);
-    expect(axiosMock.get.mock.calls[0][1]).toMatchObject({ headers: KEY, maxRedirects: 0 });
+    expect(axiosMock.get.mock.calls[0][1]).toMatchObject({ headers: { 'User-Agent': SOURCE_USER_AGENT, ...KEY }, maxRedirects: 0 });
   });
 
   it('retries once without the key after a 403', async () => {
     axiosMock.get.mockResolvedValueOnce(denied()).mockResolvedValueOnce(ok());
     const result = await fetchSourceFile(PROWLARR, { headers: KEY });
     expect(axiosMock.get).toHaveBeenCalledTimes(2);
-    expect(axiosMock.get.mock.calls[1][1].headers).toBeUndefined();
+    expect(axiosMock.get.mock.calls[1][1].headers).toEqual({ 'User-Agent': SOURCE_USER_AGENT });
     expect(result.redirects).toBe(0);
   });
 
@@ -58,6 +58,12 @@ describe('fetchSourceFile', () => {
     expect(error).toBeInstanceOf(SourceFetchError);
     expect(error.message).toBe('HTTP 403 from nzbfinder.ws (after redirect from 10.0.0.100:9696)');
     expect(error.message).not.toContain('apikey');
+  });
+
+  it('never identifies as axios (NZBFinder blocks that user agent)', async () => {
+    axiosMock.get.mockResolvedValueOnce(ok());
+    await fetchSourceFile('https://nzbfinder.ws/api/v1/getnzb?id=1');
+    expect(axiosMock.get.mock.calls[0][1].headers['User-Agent']).toBe('ReadMeABook/1.0');
   });
 
   it('treats a response without a status as OK (plain mocks / old clients)', async () => {
