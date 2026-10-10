@@ -105,6 +105,31 @@ describe('planLibraryOrganize', () => {
     expect(result.skipped[0].reason).toContain('would nest it inside itself');
   });
 
+  it('keeps a shared-world series apart: anthologies never chain authors together (Horus Heresy)', () => {
+    const HH = 'The Horus Heresy';
+    const result = plan([
+      { folder: at('Dan Abnett', HH, 'Horus Rising'), title: 'Horus Rising', author: 'Dan Abnett', series: HH },
+      { folder: at('James Swallow', HH, 'Nemesis'), title: 'Nemesis', author: 'James Swallow', series: HH },
+      { folder: at('Graham McNeill', HH, 'False Gods'), title: 'False Gods', author: 'Graham McNeill', series: HH },
+      { folder: at('Graham McNeill,Gav Thorpe,Dan Abnett,James Swallow', HH, 'Tales of Heresy'), title: 'Tales of Heresy', author: 'Graham McNeill, Gav Thorpe, Dan Abnett, James Swallow', series: HH },
+      { folder: at('Terry Pratchett,Ian Stewart,Jack Cohen', 'Science of Discworld', 'The Globe'), title: 'The Globe', author: 'Terry Pratchett, Ian Stewart, Jack Cohen', series: 'Science of Discworld' },
+    ]);
+    expect(result.moves).toEqual([]);
+    expect(result.anthologies).toBe(2);
+    expect(result.inPlace).toBe(3);
+  });
+
+  it('keeps books that share a series folder together even when Audible names their series differently (Ender Saga)', () => {
+    const ES = 'The Ender Saga';
+    const result = plan([
+      { folder: at('Orson Scott Card', ES, "Ender's Game"), title: "Ender's Game", author: 'Orson Scott Card', series: 'Ender Quintet' },
+      { folder: at('Orson Scott Card', ES, 'Speaker for the Dead'), title: 'Speaker for the Dead', author: 'Orson Scott Card', series: 'Ender Quintet' },
+      { folder: at('Orson Scott Card,Aaron Johnston', ES, 'Earth Unaware'), title: 'Earth Unaware', author: 'Orson Scott Card, Aaron Johnston', series: 'The First Formic War' },
+      { folder: at('Orson Scott Card,Aaron Johnston', ES, 'The Hive'), title: 'The Hive', author: 'Orson Scott Card, Aaron Johnston', series: 'The Second Formic War' },
+    ], ['Orson Scott Card']);
+    expect(result.moves.map(m => m.to).sort()).toEqual([at('Orson Scott Card', ES, 'Earth Unaware'), at('Orson Scott Card', ES, 'The Hive')]);
+  });
+
   it('does not add series folders when the layout has none', () => {
     const result = plan([
       { folder: at('Sarah A. Parker', 'When the Moon Hatched'), title: 'When the Moon Hatched', author: 'Sarah A. Parker', series: 'Moonfall' },

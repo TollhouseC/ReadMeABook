@@ -115,7 +115,8 @@ export async function processOrganizeLibrary(payload: OrganizeLibraryPayload) {
   const plan = planLibraryOrganize(books, { mediaDir, useSeriesFolder: template.includes('{series}'), registry });
   await logger.info(
     `Library organize ${apply ? '' : '(report only) '}: ${books.length} book folder(s) — ${plan.moves.length} to move, ` +
-    `${plan.inPlace} already in place${empty ? `, ${empty} recorded folder(s) without audio ignored` : ''}`
+    `${plan.inPlace} already in place${plan.anthologies ? `, ${plan.anthologies} anthology/3+ author book(s) left where they are` : ''}` +
+    `${empty ? `, ${empty} recorded folder(s) without audio ignored` : ''}`
   );
   for (const s of plan.skipped) await logger.info(`Left alone "${s.title}" (${s.folder}): ${s.reason}`);
   await progress.update(0, { total: plan.moves.length, label, force: true });

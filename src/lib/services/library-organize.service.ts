@@ -12,7 +12,10 @@
  *      A series written by several author combinations goes under its lead author
  *      (the person on most of its books), so the series stays together.
  *   2. Series folder → added when missing, and one spelling per series (most common).
- * Alternate-version folders (Graphic Audio, dramatized, first drafts, "{…}") never move.
+ * Books are grouped by the series folder they already share (else Audible's series name).
+ * Never moved, and never linking authors into a group: alternate-version folders (Graphic
+ * Audio, dramatized, first drafts, "{…}") and books with 3+ authors (anthologies — in a
+ * shared world like The Horus Heresy they'd chain every author into one group).
  */
 
 import path from 'path';
@@ -43,6 +46,8 @@ export interface OrganizePlan {
   skipped: Array<{ folder: string; title: string; reason: string }>;
   /** Already in place */
   inPlace: number;
+  /** Books with 3+ authors (anthologies), left where they are */
+  anthologies: number;
 }
 
 export interface OrganizeOptions {
@@ -51,6 +56,9 @@ export interface OrganizeOptions {
   useSeriesFolder: boolean;
   registry: SpellingRegistry;
 }
+
+/** This many authors or more = an anthology / shared-world collection */
+export const ANTHOLOGY_AUTHORS = 3;
 
 const ALTERNATE_RE = /graphic\s*audio|dramati[sz](?:ed|ation)|full[\s-]*cast|first\s*drafts?|non[\s-]*canon|\{[^}]+\}/i;
 
@@ -104,7 +112,7 @@ function seriesFolder(entries: Entry[]): string {
 
 export function planLibraryOrganize(books: OrganizeBook[], options: OrganizeOptions): OrganizePlan {
   const { mediaDir, useSeriesFolder, registry } = options;
-  const plan: OrganizePlan = { moves: [], skipped: [], inPlace: 0 };
+  const plan: OrganizePlan = { moves: [], skipped: [], inPlace: 0, anthologies: 0 };
 
   const entries: Entry[] = [];
   for (const book of books) {
@@ -117,12 +125,19 @@ export function planLibraryOrganize(books: OrganizeBook[], options: OrganizeOpti
     }
     if (book.alternate || parts.some(p => ALTERNATE_RE.test(p))) continue; // alternate versions stay put
     const author = book.author?.trim() || parts[0];
+    if (Math.max(parsePersons(author).length, parsePersons(parts[0]).length) >= ANTHOLOGY_AUTHORS) {
+      plan.anthologies++;
+      continue;
+    }
     // Metadata naming someone else (e.g. a wrong Audiobookshelf match) → don't trust it
     if (!sharesPerson(author, parts[0])) {
       plan.skipped.push({ folder: book.folder, title: book.title, reason: `metadata author "${author}" doesn't match folder "${parts[0]}" — check its match` });
       continue;
     }
-    const sk = useSeriesFolder && book.series?.trim() ? seriesKey(book.series) : '';
+    // Group by the series folder the book already sits in (Author/Series/Book); otherwise by
+    // Audible's series name, so a missing series folder can be added
+    const sk = parts.length === 3 ? seriesKey(parts[1])
+      : useSeriesFolder && book.series?.trim() ? seriesKey(book.series) : '';
     entries.push({ book, parts, author, seriesKey: sk || null });
   }
 
