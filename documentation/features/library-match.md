@@ -7,6 +7,8 @@ Old imports (e.g. from Plex) get fuzzy-matched by Audiobookshelf, sometimes to t
 
 ## Key Details
 - **Job:** `match_library` (`src/lib/processors/match-library.processor.ts`); Jobs page "Library Match Check (Report Only)" / "(Apply)" (`library_match_report|apply`, off by default; progress/cancel/live log).
+- **Same file listed twice** (`findDuplicateTracks`, `src/lib/services/abs-maintenance.ts`): for `too_long` items the ABS item (`GET /items/{id}`) is read; a file appearing more than once in `media.audioFiles` → `duplicate_tracks` ("Audiobookshelf lists the same file twice … remove the item with 'Delete from file system' unchecked, then Scan"; never delete a track — that deletes the file). ABS creates these after folder moves; its scans (even forced) don't remove the extra entry.
+- **Force re-scan** (`forceRescanABS` → `POST /libraries/{id}/scan?force=1`, stored token): Jobs page "Audiobookshelf Force Re-Scan" (`abs_force_scan`, manual) and automatically after Library Organize (Apply) moves folders (falls back to the normal scan trigger off Audiobookshelf).
 - **No audio** (no `media.duration`: ebook-only item, empty folder) → never checked or re-matched; listed once ("No audio — not checked").
 - **Not found** lines show the current (wrong) match: title, author, ASIN, language when not English.
 - **Data:** ABS `/libraries/{id}/items` (title, authorName, asin, `media.duration`, `relPath`). Audible runtimes of all matched ASINs via `AudibleService.getProductsByAsins` (catalog `/1.0/catalog/products?asins=…`, 50 per call). Audible search (`search`) only for suspects; 1 call/s (`matchTiming.delayMs`).

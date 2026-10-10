@@ -290,6 +290,7 @@ export default function AdminLogsPage() {
               <option value="organize_library">Library Organize</option>
               <option value="match_library">Library Match Check</option>
               <option value="library_health_report">Library Health Report</option>
+              <option value="abs_force_scan">Audiobookshelf Force Re-Scan</option>
             </select>
           </div>
         </div>

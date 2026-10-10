@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   getABSLibraryItems: vi.fn(),
   triggerABSItemMatch: vi.fn(),
+  getABSItem: vi.fn(),
   getProductsByAsins: vi.fn(),
   search: vi.fn(),
   configGet: vi.fn(),
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/services/audiobookshelf/api', () => ({
   getABSLibraryItems: mocks.getABSLibraryItems,
   triggerABSItemMatch: mocks.triggerABSItemMatch,
+  getABSItem: mocks.getABSItem,
 }));
 vi.mock('@/lib/integrations/audible.service', () => ({
   getAudibleService: () => ({ getProductsByAsins: mocks.getProductsByAsins, search: mocks.search }),
@@ -78,6 +80,18 @@ describe('processMatchLibrary', () => {
     expect(result).toMatchObject({ suspects: 0, rematched: 0 });
     expect(mocks.search).not.toHaveBeenCalled();
     expect(mocks.triggerABSItemMatch).not.toHaveBeenCalled();
+  });
+
+  it('names a file Audiobookshelf lists twice instead of calling it too much audio', async () => {
+    const file = '/audiobooks/Terry Pratchett/Discworld/Mort/Mort.m4b';
+    mocks.getABSLibraryItems.mockResolvedValue([absItem('dup', 'Terry Pratchett/Discworld/Mort', 'Mort', 'B0MORT', 15)]);
+    mocks.search.mockResolvedValue({ results: [{ asin: 'B0MORT', title: 'Mort', author: 'Terry Pratchett', durationMinutes: 450 }] });
+    mocks.getABSItem.mockResolvedValue({ media: { audioFiles: [{ metadata: { path: file } }, { metadata: { path: file } }] } });
+
+    const result = await run('report');
+
+    expect(mocks.getABSItem).toHaveBeenCalledWith('dup');
+    expect(result).toMatchObject({ duplicate_tracks: 1, too_long: 0 });
   });
 
   it('does nothing on the Plex backend', async () => {

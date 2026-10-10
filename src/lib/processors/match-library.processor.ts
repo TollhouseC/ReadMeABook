@@ -23,6 +23,7 @@ import {
 import { getMediaDir } from './fix-chapters.processor';
 import { listAudioRelative } from '../utils/torrent-own-files';
 import { probeEmbeddedChapters } from '../utils/chapter-list';
+import { findDuplicateTracks } from '../services/abs-maintenance';
 
 /** Text safe inside "…" within a single-quoted sh -c '…' command. */
 function shellDir(dir: string): string {
@@ -118,7 +119,7 @@ export async function processMatchLibrary(payload: MatchLibraryPayload) {
   );
   await progress.update(0, { total: suspects.length, label, force: true });
 
-  const counts = { ok: 0, other_edition: 0, rematched: 0, would_rematch: 0, wrong_audio: 0, too_short: 0, too_long: 0, unsure: 0, not_found: 0, failed: 0 };
+  const counts = { ok: 0, other_edition: 0, rematched: 0, would_rematch: 0, wrong_audio: 0, too_short: 0, too_long: 0, duplicate_tracks: 0, unsure: 0, not_found: 0, failed: 0 };
   const editions: string[] = [];
   for (const [index, suspect] of suspects.entries()) {
     if (await progress.isCancelled()) {
@@ -178,6 +179,17 @@ export async function processMatchLibrary(payload: MatchLibraryPayload) {
             counts.too_short++;
             await logger.warn(`Incomplete or abridged file? ${where}: audio is ${audio} but "${decision.book.title}" is ${formatMinutes(decision.book.minutes)} — re-download it.${exact}`);
           } else {
+            // Audiobookshelf listing the same file twice doubles the length — say so instead
+            const dupes = await findDuplicateTracks(suspect.item.id).catch(() => [] as string[]);
+            if (dupes.length > 0) {
+              counts.duplicate_tracks++;
+              await logger.warn(
+                `Audiobookshelf lists the same file twice ${where}: ${dupes.map(d => `"${d}"`).join(', ')} — that's why its length shows doubled. ` +
+                'Fix: in Audiobookshelf open the item → ⋯ → Delete with "Delete from file system" UNCHECKED, then Scan (its listening progress resets). ' +
+                'Never delete a track from the Audio Tracks list — that deletes the file.'
+              );
+              break;
+            }
             counts.too_long++;
             const hint = decision.book.minutes ? await chapterHint(dir, decision.book.minutes).catch(() => '') : '';
             await logger.warn(`Too much audio ${where}: ${audio} but "${decision.book.title}" is ${formatMinutes(decision.book.minutes)}${hint} — duplicate copies, several books in one file, or Audible only sells a shorter edition.${exact}`);
@@ -209,7 +221,7 @@ export async function processMatchLibrary(payload: MatchLibraryPayload) {
   await progress.finish(cancelled ? 'Cancelled' : 'Done');
   await logger.info(
     `Library match ${apply ? `complete — re-matched ${counts.rematched}` : `check complete — would re-match ${counts.would_rematch}`}, ` +
-    `wrong audio ${counts.wrong_audio}, incomplete ${counts.too_short}, too much audio ${counts.too_long}, check manually ${counts.unsure}, ` +
+    `wrong audio ${counts.wrong_audio}, incomplete ${counts.too_short}, too much audio ${counts.too_long}, file listed twice in Audiobookshelf ${counts.duplicate_tracks}, check manually ${counts.unsure}, ` +
     `not on Audible ${counts.not_found}, other edition (fine) ${counts.other_edition}, match fine ${counts.ok}, failed ${counts.failed}`
   );
   return {

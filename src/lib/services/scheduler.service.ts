@@ -10,7 +10,7 @@ import { RMABLogger } from '../utils/logger';
 
 const logger = RMABLogger.create('Scheduler');
 
-export type ScheduledJobType = 'plex_library_scan' | 'plex_library_scan_now' | 'plex_recently_added_check' | 'audible_refresh' | 'retry_missing_torrents' | 'retry_failed_imports' | 'cleanup_seeded_torrents' | 'monitor_rss_feeds' | 'sync_reading_shelves' | 'check_watched_lists' | 'check_stalled_downloads' | 'chapter_check_report' | 'chapter_check_apply' | 'library_layout_report' | 'library_layout_apply' | 'chapter_sync_report' | 'chapter_sync_apply' | 'library_merge_report' | 'library_merge_apply' | 'library_organize_report' | 'library_organize_apply' | 'library_match_report' | 'library_match_apply' | 'library_health_report';
+export type ScheduledJobType = 'plex_library_scan' | 'plex_library_scan_now' | 'plex_recently_added_check' | 'audible_refresh' | 'retry_missing_torrents' | 'retry_failed_imports' | 'cleanup_seeded_torrents' | 'monitor_rss_feeds' | 'sync_reading_shelves' | 'check_watched_lists' | 'check_stalled_downloads' | 'chapter_check_report' | 'chapter_check_apply' | 'library_layout_report' | 'library_layout_apply' | 'chapter_sync_report' | 'chapter_sync_apply' | 'library_merge_report' | 'library_merge_apply' | 'library_organize_report' | 'library_organize_apply' | 'library_match_report' | 'library_match_apply' | 'library_health_report' | 'abs_force_scan';
 
 export interface ScheduledJob {
   id: string;
@@ -235,6 +235,14 @@ export class SchedulerService {
         name: 'Library Organize (Apply)',
         type: 'library_organize_apply' as ScheduledJobType,
         schedule: '0 6 1 * *', // Monthly if enabled
+        enabled: false,
+        payload: {},
+      },
+      {
+        // Run manually: Audiobookshelf re-reads every item (uses ReadMeABook's stored token)
+        name: 'Audiobookshelf Force Re-Scan',
+        type: 'abs_force_scan' as ScheduledJobType,
+        schedule: '0 9 1 * *', // Monthly if enabled
         enabled: false,
         payload: {},
       },
@@ -529,6 +537,9 @@ export class SchedulerService {
           mode: job.type === 'library_layout_apply' ? 'apply' : 'report',
           scheduledJobId: job.id,
         });
+        break;
+      case 'abs_force_scan':
+        bullJobId = await this.jobQueue.addAbsForceScanJob({ scheduledJobId: job.id });
         break;
       case 'library_health_report':
         bullJobId = await this.jobQueue.addLibraryHealthReportJob({ scheduledJobId: job.id });

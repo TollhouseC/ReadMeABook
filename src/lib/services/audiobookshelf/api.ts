@@ -107,10 +107,10 @@ export async function searchABSItems(libraryId: string, query: string) {
 }
 
 /**
- * Trigger a library scan
+ * Trigger a library scan (force = re-read every item, not just changed folders)
  * Note: This endpoint returns plain text "OK" instead of JSON
  */
-export async function triggerABSScan(libraryId: string) {
+export async function triggerABSScan(libraryId: string, options: { force?: boolean } = {}) {
   const configService = getConfigService();
   const serverUrl = await configService.get('audiobookshelf.server_url');
   const apiToken = await configService.get('audiobookshelf.api_token');
@@ -119,7 +119,7 @@ export async function triggerABSScan(libraryId: string) {
     throw new Error('Audiobookshelf not configured');
   }
 
-  const url = `${serverUrl.replace(/\/$/, '')}/api/libraries/${libraryId}/scan`;
+  const url = `${serverUrl.replace(/\/$/, '')}/api/libraries/${libraryId}/scan${options.force ? '?force=1' : ''}`;
 
   const response = await fetch(url, {
     method: 'POST',

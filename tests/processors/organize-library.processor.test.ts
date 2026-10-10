@@ -20,6 +20,8 @@ vi.mock('@/lib/processors/fix-chapters.processor', () => ({
 }));
 vi.mock('@/lib/utils/library-book-files', () => ({ triggerLibraryScan: mocks.triggerLibraryScan }));
 vi.mock('@/lib/services/config.service', () => ({ getConfigService: () => ({ get: mocks.configGet }) }));
+const forceRescan = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/services/abs-maintenance', () => ({ forceRescanABS: forceRescan }));
 
 const HW = 'He Who Fights with Monsters';
 const RMAB_AUTHOR = 'Shirtaloon, Travis Deverell';
@@ -49,6 +51,7 @@ beforeEach(async () => {
     { id: 'ab-2', audibleAsin: 'B2', author: RMAB_AUTHOR, series: HW, versionLabel: null },
   ]);
   prismaMock.audiobook.updateMany.mockResolvedValue({ count: 1 });
+  forceRescan.mockResolvedValue(false);
 });
 
 afterEach(async () => {
@@ -82,7 +85,8 @@ describe('processOrganizeLibrary', () => {
     await expect(fs.stat(path.join(state.root, 'Travis Deverell Shirtaloon'))).rejects.toThrow(); // emptied folders removed
     expect(prismaMock.audiobook.updateMany).toHaveBeenCalledWith({ where: { id: 'ab-2' }, data: { filePath: target } });
     expect(prismaMock.audiobook.updateMany).toHaveBeenCalledWith({ where: { absItemId: 'li-2' }, data: { filePath: target } });
-    expect(mocks.triggerLibraryScan).toHaveBeenCalled();
+    expect(forceRescan).toHaveBeenCalled(); // Audiobookshelf re-reads moved items
+    expect(mocks.triggerLibraryScan).toHaveBeenCalled(); // fallback when not on Audiobookshelf (mock returns undefined)
 
     const logs = (await fs.readdir(undoDir)).sort();
     expect(logs).toHaveLength(26);

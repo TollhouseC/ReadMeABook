@@ -22,6 +22,7 @@ import { removeEmptyParentDirectories } from '../utils/cleanup-helpers';
 import { SpellingRegistry } from '../utils/author-identity';
 import { planLibraryOrganize, type OrganizeBook, type PlannedMove } from '../services/library-organize.service';
 import { collectCandidates, getMediaDir } from './fix-chapters.processor';
+import { forceRescanABS } from '../services/abs-maintenance';
 
 /** ReadMeABook's own records outweigh Audiobookshelf metadata and folder names when picking a spelling */
 const RMAB_WEIGHT = 3;
@@ -168,7 +169,14 @@ export async function processOrganizeLibrary(payload: OrganizeLibraryPayload) {
   await logger.info(apply
     ? `Library organize complete — moved ${moved}, couldn't move ${blocked}, failed ${failed}, left alone ${plan.skipped.length}`
     : `Library organize check complete — would move ${wouldMove}, couldn't move ${blocked}, left alone ${plan.skipped.length}`);
-  if (moved > 0) await triggerLibraryScan(logger);
+  // Moved folders: a normal Audiobookshelf scan can leave stale track entries behind — force one
+  if (moved > 0) {
+    const forced = await forceRescanABS(logger).catch(async (error) => {
+      await logger.warn(`Audiobookshelf force re-scan failed: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    });
+    if (!forced) await triggerLibraryScan(logger);
+  }
   return {
     success: true, mode: apply ? 'apply' : 'report', books: books.length, in_place: plan.inPlace,
     moved, would_move: apply ? 0 : wouldMove, blocked, failed, left_alone: plan.skipped.length,

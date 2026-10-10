@@ -44,6 +44,7 @@ export type JobType =
   | 'organize_library'
   | 'match_library'
   | 'library_health_report'
+  | 'abs_force_scan'
   | 'send_notification'
   // Ebook-specific job types
   | 'search_ebook'
@@ -164,6 +165,10 @@ export interface MatchLibraryPayload extends JobPayload {
 }
 
 export interface LibraryHealthReportPayload extends JobPayload {
+  scheduledJobId?: string;
+}
+
+export interface AbsForceScanPayload extends JobPayload {
   scheduledJobId?: string;
 }
 
@@ -527,6 +532,12 @@ export class JobQueueService {
       const { processLibraryHealthReport } = await import('../processors/library-health-report.processor');
       const payloadWithJobId = await this.ensureJobRecord(job, 'library_health_report');
       return await processLibraryHealthReport(payloadWithJobId);
+    });
+
+    this.queue.process('abs_force_scan', 1, async (job: BullJob<AbsForceScanPayload>) => {
+      const { processAbsForceScan } = await import('../processors/abs-force-scan.processor');
+      const payloadWithJobId = await this.ensureJobRecord(job, 'abs_force_scan');
+      return await processAbsForceScan(payloadWithJobId);
     });
 
     // Send notification processor
@@ -975,6 +986,13 @@ export class JobQueueService {
    */
   async addLibraryHealthReportJob(options: { scheduledJobId?: string }): Promise<string> {
     return await this.addJob('library_health_report', { ...options } as LibraryHealthReportPayload, { priority: 9 });
+  }
+
+  /**
+   * Ask Audiobookshelf to re-read every item (force scan)
+   */
+  async addAbsForceScanJob(options: { scheduledJobId?: string }): Promise<string> {
+    return await this.addJob('abs_force_scan', { ...options } as AbsForceScanPayload, { priority: 7 });
   }
 
   /**
