@@ -31,6 +31,7 @@
 - **ABS library service** → `src/lib/services/library/AudiobookshelfLibraryService.ts`
 - **Backend mode selection (Plex vs ABS)** → [backend/services/config.md](backend/services/config.md)
 - **File hash matching for accurate ASIN** → [fixes/file-hash-matching.md](fixes/file-hash-matching.md)
+- **"In library" for another edition you own (re-issued ASINs, title + author)** → [integrations/audible.md](integrations/audible.md#unified-matching-audiobook-matcherts)
 - **Library Match Check: wrong ABS matches (length/title/shared ASIN), re-match, wrong-audio detection** → [features/library-match.md](features/library-match.md)
 - **OIDC authentication** → [backend/services/auth.md](backend/services/auth.md)
 

@@ -8,7 +8,9 @@
 
 import { prisma } from '@/lib/db';
 import { LibraryItem } from '@/lib/services/library';
-import { getSiblingAsins } from '@/lib/services/works.service';
+import { getSiblingAsins, persistDedupGroups } from '@/lib/services/works.service';
+import type { DedupGroup } from './deduplicate-audiobooks';
+import { findOwnedEdition } from './edition-match';
 import { RMABLogger } from './logger';
 
 // Module-level logger
@@ -232,6 +234,28 @@ export async function enrichAudiobooksWithMatches(
     logger.error('Sibling ASIN expansion failed', {
       error: error instanceof Error ? error.message : String(error),
     });
+  }
+
+  // Another edition of the same book in the library (Audible re-issues books under new
+  // ASINs) — matched by title + author, never across dramatized/full-cast/abridged versions.
+  // Each match is saved as a works link so later look-ups match by ASIN.
+  try {
+    const learned: DedupGroup[] = [];
+    for (const result of results) {
+      if (result.isAvailable) continue;
+      const owned = await findOwnedEdition({ asin: result.asin, title: (result as any).title ?? '', author: (result as any).author ?? '' });
+      if (!owned) continue;
+      (result as any).isAvailable = true;
+      (result as any).plexGuid = owned.plexGuid;
+      (result as any).ownedEdition = { asin: owned.asin, title: owned.title };
+      if (owned.asin) learned.push({ canonicalAsin: owned.asin, allAsins: [owned.asin, result.asin], title: owned.title, author: owned.author });
+    }
+    if (learned.length > 0) {
+      logger.debug(`Other-edition library matches: ${learned.length}`);
+      persistDedupGroups(learned).catch(() => {});
+    }
+  } catch (error) {
+    logger.error('Other-edition matching failed', { error: error instanceof Error ? error.message : String(error) });
   }
 
   // Always enrich with request status (check ANY user's requests)

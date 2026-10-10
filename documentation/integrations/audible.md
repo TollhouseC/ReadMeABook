@@ -138,6 +138,8 @@ Single matching algorithm used everywhere (search, popular, new-releases, jobs).
 
 **Note:** Fuzzy matching (70% threshold) is preserved in `ranking-algorithm.ts` for Prowlarr torrent ranking. Library availability checks require exact ASIN matches only.
 
+**Other editions (`enrichAudiobooksWithMatches`, after works-sibling expansion):** Audible re-issues books under new ASINs (Age of Myth: library B0161R0XBQ 2016 vs search B0DNLG5BW7 2025). Unmatched results → `findOwnedEdition` (`src/lib/utils/edition-match.ts`): library item with the same `editionKey(title)` (case/accents/punctuation/brackets/"Unabridged"/leading article ignored), a shared author (`sharesPerson`), a different ASIN and the same `versionType` (dramatized / full cast / graphic audio / abridged never match a standard edition). Library index (`plex_library` title/author/asin) cached 60s. Match → `isAvailable`, `plexGuid`, `ownedEdition {asin,title}` (card: "In Your Library — another edition" + tooltip) and a works group `[libraryAsin, resultAsin]` persisted (fire-and-forget) so later look-ups and `getAvailableAsins` match by ASIN.
+
 ## Database-First Approach
 
 **Status:** Implemented

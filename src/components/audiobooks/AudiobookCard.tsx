@@ -173,8 +173,12 @@ export function AudiobookCard({
                     ) : !user ? 'Sign in to Request' : 'Request'}
                   </button>
                 ) : status?.type === 'available' ? (
-                  <div className="w-full py-2.5 px-4 rounded-xl font-semibold text-sm text-center bg-emerald-500 text-white backdrop-blur-md shadow-lg shadow-emerald-500/25">
+                  <div
+                    className="w-full py-2.5 px-4 rounded-xl font-semibold text-sm text-center bg-emerald-500 text-white backdrop-blur-md shadow-lg shadow-emerald-500/25"
+                    title={audiobook.ownedEdition ? `You have another edition: ${audiobook.ownedEdition.title}` : undefined}
+                  >
                     In Your Library
+                    {audiobook.ownedEdition && <span className="block text-[11px] font-normal opacity-90">another edition</span>}
                   </div>
                 ) : (
                   <div className={`
@@ -201,7 +205,7 @@ export function AudiobookCard({
 
             {/* Subtle Status Indicator (visible when not hovered) */}
             {status && (
-              <div className={`
+              <div title={status.type === 'available' && audiobook.ownedEdition ? 'In your library (another edition)' : status.label} className={`
                 absolute top-3 right-3 w-3 h-3 rounded-full
                 shadow-lg transition-opacity duration-300 group-hover:opacity-0
                 ${status.type === 'available' ? 'bg-emerald-400' : ''}

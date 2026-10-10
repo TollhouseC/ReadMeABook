@@ -26,6 +26,7 @@ export interface Audiobook {
   seriesPart?: string;     // Position in series (e.g., "1", "1.5")
   seriesAsin?: string;     // Audible ASIN for the series (links to /series/{asin})
   isAvailable?: boolean;  // Set by real-time matching against plex_library
+  ownedEdition?: { asin: string | null; title: string } | null;  // Available because the library has another edition
   plexGuid?: string | null;
   dbId?: string | null;
   isRequested?: boolean;  // Set if ANY user has requested this audiobook

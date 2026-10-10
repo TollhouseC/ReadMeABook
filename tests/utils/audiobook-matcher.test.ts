@@ -146,6 +146,22 @@ describe('audiobook-matcher', () => {
     expect(results[1].isAvailable).toBe(false);
     expect(results[1].isRequested).toBe(false);
   });
+
+  it('shows a re-issued edition as in the library when you own another edition', async () => {
+    (await import('@/lib/utils/edition-match')).clearEditionCache();
+    prismaMock.plexLibrary.findMany.mockImplementation(async (args: any) => (args?.where
+      ? [] // no ASIN match for the re-issue
+      : [{ asin: 'B0161R0XBQ', plexGuid: 'g-aom', title: 'Age of Myth', author: 'Michael J. Sullivan' }]));
+    prismaMock.audiobook.findMany.mockResolvedValue([]);
+    prismaMock.reportedIssue.findMany.mockResolvedValue([]);
+
+    const { enrichAudiobooksWithMatches } = await import('@/lib/utils/audiobook-matcher');
+    const [result] = await enrichAudiobooksWithMatches([{ asin: 'B0DNLG5BW7', title: 'Age of Myth', author: 'Michael J. Sullivan' }]);
+
+    expect(result.isAvailable).toBe(true);
+    expect(result.plexGuid).toBe('g-aom');
+    expect((result as any).ownedEdition).toEqual({ asin: 'B0161R0XBQ', title: 'Age of Myth' });
+  });
 });
 
 
