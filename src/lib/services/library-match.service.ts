@@ -65,7 +65,7 @@ export type MatchDecision =
   | { kind: 'ok' }
   | { kind: 'edition'; current: ScoredCandidate }
   | { kind: 'confident'; candidate: ScoredCandidate; why: string }
-  | { kind: 'too_short' | 'too_long'; book: ScoredCandidate }
+  | { kind: 'too_short' | 'too_long'; book: ScoredCandidate; ratio: number }
   | { kind: 'wrong_audio'; namedAs: ScoredCandidate; audioMatches: string }
   | { kind: 'unsure'; why: string; candidates: ScoredCandidate[] }
   | { kind: 'not_found'; candidates: ScoredCandidate[] };
@@ -217,10 +217,19 @@ export function decideMatch(suspect: Suspect, candidates: ScoredCandidate[], lan
     return { kind: 'confident', candidate: fitting, why };
   }
 
-  // Wrong audio: the audio is exactly another book's length
+  // Wrong audio: the audio is exactly another book's length — unless it also fits an
+  // edition range of the folder's own book (a coincidence with a sibling, e.g. Alcatraz/Bastille)
   if (named.length > 0) {
     const twin = candidates.find(c => c.authorOk && !named.includes(c) && exactLength(sec, c.minutes));
-    if (twin) return { kind: 'wrong_audio', namedAs: named[0], audioMatches: twin.title };
+    if (twin) {
+      const ownRatio = audioMin && named[0].minutes ? audioMin / named[0].minutes : 0;
+      // Audiobookshelf itself thinks it's the other book → trust the wrong-audio verdict
+      const absAgrees = twin.asin.toLowerCase() === currentAsin || titleSimilarity(suspect.item.title, suspect.folderTitle) < TITLE_SUSPECT_BELOW;
+      if (!absAgrees && ownRatio >= EDITION_RATIO.min && ownRatio <= EDITION_RATIO.max) {
+        return { kind: 'unsure', why: `the audio fits an edition of "${named[0].title}" but is exactly the length of "${twin.title}" — another edition, or the wrong book?`, candidates: [named[0], twin] };
+      }
+      return { kind: 'wrong_audio', namedAs: named[0], audioMatches: twin.title };
+    }
     if (current && !currentNamed && exactLength(sec, current.minutes) && titleSimilarity(suspect.item.title, suspect.folderTitle) < TITLE_SUSPECT_BELOW) {
       return { kind: 'wrong_audio', namedAs: named[0], audioMatches: current.title };
     }
@@ -235,8 +244,8 @@ export function decideMatch(suspect: Suspect, candidates: ScoredCandidate[], lan
   }
 
   const ratio = audioMin / book.minutes;
-  if (ratio <= TOO_SHORT_RATIO) return { kind: 'too_short', book };
-  if (ratio >= TOO_LONG_RATIO) return { kind: 'too_long', book };
+  if (ratio <= TOO_SHORT_RATIO) return { kind: 'too_short', book, ratio };
+  if (ratio >= TOO_LONG_RATIO) return { kind: 'too_long', book, ratio };
   if (ratio >= EDITION_RATIO.min && ratio <= EDITION_RATIO.max) {
     return needsRematch
       ? { kind: 'confident', candidate: book, why: currentForeign ? 'current match is another-language edition' : 'the folder\'s book, closest edition' }
@@ -244,6 +253,49 @@ export function decideMatch(suspect: Suspect, candidates: ScoredCandidate[], lan
   }
   return { kind: 'unsure', why: `"${book.title}" fits the folder name but the audio is ${Math.round(ratio * 100)}% of its length`, candidates: named.slice(0, 3) };
 }
+
+/** Exactly double / half (±4%) — a bad length header, a broken file or doubled content. */
+export const isDoubleOrHalf = (ratio: number) => Math.abs(ratio - 2) <= 0.08 || Math.abs(ratio - 0.5) <= 0.02;
+
+export interface ChapterMark {
+  title: string;
+  startMs: number;
+  endMs: number;
+}
+
+export type ChapterPattern =
+  | { kind: 'books'; parts: Array<{ title: string; startMs: number }> }
+  | { kind: 'repeat'; atMs: number; title: string };
+
+const chapterNumber = (title: string): number | null => {
+  const m = title.match(/(\d+)\s*$/);
+  return m ? parseInt(m[1], 10) : null;
+};
+
+/**
+ * What an over-long file's chapters say: a few very long chapters = several books in one file
+ * (a box set); numbering that starts over = the same book twice.
+ */
+export function analyzeChapters(chapters: ChapterMark[], bookMinutes: number): ChapterPattern | null {
+  if (chapters.length >= 2 && chapters.length <= 12) {
+    const shortest = Math.min(...chapters.map(c => c.endMs - c.startMs));
+    if (shortest >= bookMinutes * 60_000 * 0.5) return { kind: 'books', parts: chapters.map(c => ({ title: c.title, startMs: c.startMs })) };
+  }
+  for (let i = 2; i < chapters.length; i++) {
+    const prev = chapterNumber(chapters[i - 1].title);
+    const cur = chapterNumber(chapters[i].title);
+    const titleRepeats = chapters[i].title === chapters[0].title;
+    if (titleRepeats || (prev !== null && cur !== null && cur <= 1 && prev >= 5)) {
+      return { kind: 'repeat', atMs: chapters[i].startMs, title: chapters[i].title };
+    }
+  }
+  return null;
+}
+
+export const formatClock = (ms: number) => {
+  const s = Math.round(ms / 1000);
+  return `${Math.floor(s / 3600)}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+};
 
 /** First author's name, for the Audible search query. */
 export function searchAuthor(folderAuthor: string): string {

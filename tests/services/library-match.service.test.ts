@@ -6,7 +6,8 @@
 import { describe, expect, it } from 'vitest';
 import type { AudibleAudiobook } from '@/lib/integrations/audible.service';
 import {
-  decideMatch, findSuspects, folderInfo, lengthFit, scoreCandidates, searchTitle, titleSimilarity, type MatchItem, type Suspect,
+  analyzeChapters, decideMatch, findSuspects, folderInfo, isDoubleOrHalf, lengthFit, scoreCandidates, searchTitle, titleSimilarity,
+  type MatchItem, type Suspect,
 } from '@/lib/services/library-match.service';
 
 const H = 3600;
@@ -140,8 +141,45 @@ describe('decideMatch — broken files and wrong books', () => {
       .toMatchObject({ kind: 'confident', candidate: { asin: 'B0BJLCYHHR' } });
   });
 
+  it('asks for a check instead of crying wrong audio when the length also fits an edition (Alcatraz vs Bastille)', () => {
+    const alcatraz = book('B005GGGC3M', 'Alcatraz versus the Evil Librarians', 'Brandon Sanderson', 415);
+    const s = suspectFor(item({ title: 'Alcatraz versus the Evil Librarians', asin: 'B005GGGC3M', durationSec: 292.4 * 60, relPath: 'Brandon Sanderson/Alcatraz versus the Evil Librarians/Alcatraz versus the Evil Librarians' }), alcatraz);
+    const decision = decide(s, [alcatraz, book('B0BAST', 'Bastille vs. the Evil Librarians', 'Brandon Sanderson', 292)]);
+    expect(decision).toMatchObject({ kind: 'unsure' });
+    expect((decision as { why: string }).why).toContain('exactly the length of "Bastille vs. the Evil Librarians"');
+  });
+
   it('reports books not on Audible', () => {
     const s = suspectFor(item({ title: 'The Girl of Hrusch Avenue', durationSec: 51 * 60, relPath: 'Brian McClellan/The Powder Mage Trilogy/The Girl of Hrusch Avenue' }));
     expect(decide(s, [book('B1', 'Promise of Blood', 'Brian McClellan', 900)])).toMatchObject({ kind: 'not_found' });
+  });
+});
+
+describe('analyzeChapters / isDoubleOrHalf', () => {
+  const ch = (title: string, startH: number, endH: number) => ({ title, startMs: startH * 3_600_000, endMs: endH * 3_600_000 });
+
+  it('spots a box set saved under one title (Where It All Began)', () => {
+    const pattern = analyzeChapters([
+      ch('Holding on to Chaos', 0, 11.77), ch('The Fine Art of Faking It', 11.77, 23.98),
+      ch('The Mistletoe Kisser', 23.98, 33.45), ch('Where It All Began', 33.45, 40.62),
+    ], 429);
+    expect(pattern).toMatchObject({ kind: 'books', parts: [{ title: 'Holding on to Chaos' }, { title: 'The Fine Art of Faking It' }, { title: 'The Mistletoe Kisser' }, { title: 'Where It All Began' }] });
+  });
+
+  it('spots the book twice when chapter numbering starts over (The Magos)', () => {
+    const first = Array.from({ length: 48 }, (_, i) => ch(`Chapter ${String(i + 1).padStart(2, '0')}`, i * 0.42, (i + 1) * 0.42));
+    const second = Array.from({ length: 47 }, (_, i) => ch(String(i + 1).padStart(3, '0'), 20.08 + i * 0.42, 20.08 + (i + 1) * 0.42));
+    expect(analyzeChapters([...first, ...second], 1204)).toEqual({ kind: 'repeat', atMs: 20.08 * 3_600_000, title: '001' });
+  });
+
+  it('finds nothing in a normal chapter list', () => {
+    expect(analyzeChapters(Array.from({ length: 30 }, (_, i) => ch(`Chapter ${i + 1}`, i * 0.5, (i + 1) * 0.5)), 900)).toBeNull();
+  });
+
+  it('recognises exactly double or half', () => {
+    expect(isDoubleOrHalf(2.0)).toBe(true);
+    expect(isDoubleOrHalf(0.5)).toBe(true);
+    expect(isDoubleOrHalf(3.4)).toBe(false);
+    expect(isDoubleOrHalf(0.33)).toBe(false);
   });
 });

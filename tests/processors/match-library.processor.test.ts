@@ -70,6 +70,16 @@ describe('processMatchLibrary', () => {
     expect(result).toMatchObject({ rematched: 1 });
   });
 
+  it('skips items with no audio (an ebook in the audiobook library)', async () => {
+    mocks.getABSLibraryItems.mockResolvedValue([
+      { id: 'epub', relPath: 'Ali Hazelwood/Love, Theoretically', isFile: false, media: { metadata: { title: 'Love, Theoretically', authorName: 'Ali Hazelwood' } } },
+    ]);
+    const result = await run('apply');
+    expect(result).toMatchObject({ suspects: 0, rematched: 0 });
+    expect(mocks.search).not.toHaveBeenCalled();
+    expect(mocks.triggerABSItemMatch).not.toHaveBeenCalled();
+  });
+
   it('does nothing on the Plex backend', async () => {
     mocks.getBackendMode.mockResolvedValue('plex');
     expect(await run('apply')).toMatchObject({ checked: 0 });

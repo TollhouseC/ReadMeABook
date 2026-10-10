@@ -451,9 +451,18 @@ export class FileOrganizer {
           continue;
         }
 
-        // Check if target already exists (skip if already copied)
+        // Already in the target folder: same size → copied by an earlier attempt, skip it.
+        // Different size → a stale or broken leftover (e.g. a half-written file) that would
+        // otherwise block this import — replace it with the new download.
+        let replacing = false;
         try {
           await fs.access(targetFilePath);
+          const [existing, incoming] = await Promise.all([fs.stat(targetFilePath), fs.stat(sourcePath)]).catch(() => [null, null]);
+          if (existing && incoming && existing.size !== incoming.size) {
+            replacing = true;
+            await logger?.warn(`Replacing existing ${filename} (${existing.size} bytes) with the new download (${incoming.size} bytes)`);
+            throw new Error('replace');
+          }
           moduleLogger.debug(`File already exists, skipping: ${filename}`);
           result.audioFiles.push(targetFilePath);
 
@@ -468,13 +477,19 @@ export class FileOrganizer {
           }
           continue;
         } catch {
-          // File doesn't exist, continue with copy
+          // File doesn't exist (or is being replaced), continue with copy
         }
 
         // Copy file (do NOT delete original - needed for seeding)
         try {
-          // Copy file via streams (avoids copy_file_range EPERM on NFS/FUSE)
-          await copyFile(sourcePath, targetFilePath);
+          // Copy file via streams (avoids copy_file_range EPERM on NFS/FUSE). A replacement is
+          // written next to the old file first, so a failed copy never destroys it.
+          if (replacing) {
+            await copyFile(sourcePath, `${targetFilePath}.partial`);
+            await fs.rename(`${targetFilePath}.partial`, targetFilePath);
+          } else {
+            await copyFile(sourcePath, targetFilePath);
+          }
           // Set explicit permissions after copy
           await fs.chmod(targetFilePath, this.fileMode);
 

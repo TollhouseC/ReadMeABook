@@ -17,9 +17,37 @@ import { createJobProgress, CANCELLED_RESULT } from '../utils/job-progress';
 import { getRequiredReleaseLanguage } from '../utils/release-language';
 import type { AudibleAudiobook } from '../integrations/audible.service';
 import {
-  decideMatch, findSuspects, folderInfo, formatMinutes, scoreCandidates, searchAuthor, searchTitle,
-  type MatchItem, type ScoredCandidate,
+  analyzeChapters, decideMatch, findSuspects, folderInfo, formatClock, formatMinutes, isDoubleOrHalf, scoreCandidates,
+  searchAuthor, searchTitle, type MatchItem, type ScoredCandidate,
 } from '../services/library-match.service';
+import { getMediaDir } from './fix-chapters.processor';
+import { listAudioRelative } from '../utils/torrent-own-files';
+import { probeEmbeddedChapters } from '../utils/chapter-list';
+
+/** Text safe inside "…" within a single-quoted sh -c '…' command. */
+function shellDir(dir: string): string {
+  const escaped = dir.replace(/["$`\\]/g, m => '\\' + m).replace(/'/g, "'\\''");
+  return '"' + escaped + '"';
+}
+
+/** Command that decodes each audio file in a folder to print its real length. */
+const realLengthCommand = (dir: string) =>
+  `docker exec ReadMeABook sh -c 'cd ${shellDir(dir)} && for f in *; do ffmpeg -nostdin -i "$f" -map 0:a -f null - 2>&1 | grep -o "time=[0-9:.]*" | tail -1; done'`;
+
+/** Chapter hint for an over-long single-file book: several books in one file, or the book twice. */
+async function chapterHint(dir: string, bookMinutes: number): Promise<string> {
+  const files = (await listAudioRelative(dir)).filter(f => !f.includes('/'));
+  if (files.length !== 1) return files.length > 1 ? ` (${files.length} audio files in the folder)` : '';
+  const chapters = await probeEmbeddedChapters(`${dir}/${files[0]}`);
+  const pattern = analyzeChapters(chapters, bookMinutes);
+  if (pattern?.kind === 'books') {
+    return ` — its chapters look like separate books: ${pattern.parts.map(p => `"${p.title}" (${formatClock(p.startMs)})`).join(', ')}`;
+  }
+  if (pattern?.kind === 'repeat') {
+    return ` — its chapter numbering starts over at ${formatClock(pattern.atMs)} ("${pattern.title}"): probably the book twice`;
+  }
+  return '';
+}
 
 /** Pause between Audible calls (tests set 0) */
 export const matchTiming = { delayMs: 1000 };
@@ -77,7 +105,13 @@ export async function processMatchLibrary(payload: MatchLibraryPayload) {
     await delay();
   }
 
-  const suspects = cancelled ? [] : findSuspects(items, products);
+  // Items without audio (an ebook in the audiobook library, an empty folder) can't be judged
+  const noAudio = items.filter(i => !i.durationSec);
+  if (noAudio.length > 0) {
+    await logger.info(`No audio — not checked (${noAudio.length}; ebook in the audiobook library or an empty folder?): ${noAudio.slice(0, 25).map(i => `"${i.relPath}"`).join(', ')}${noAudio.length > 25 ? ', …' : ''}`);
+  }
+  const mediaDir = await getMediaDir();
+  const suspects = cancelled ? [] : findSuspects(items.filter(i => i.durationSec), products);
   await logger.info(
     `Library match ${apply ? '' : '(report only) '}: ${items.length} item(s), ${asins.length} ASIN(s) — ` +
     `${products.size} found on Audible; ${suspects.length} suspect match(es) to check (release language: ${language})`
@@ -135,13 +169,21 @@ export async function processMatchLibrary(payload: MatchLibraryPayload) {
           await logger.warn(`Wrong audio? ${where}: the folder is "${decision.namedAs.title}" (${formatMinutes(decision.namedAs.minutes)}) but the audio is exactly the length of "${decision.audioMatches}" — re-download it`);
           break;
         case 'too_short':
-          counts.too_short++;
-          await logger.warn(`Incomplete or abridged file? ${where}: audio is ${audio} but "${decision.book.title}" is ${formatMinutes(decision.book.minutes)} — re-download it`);
+        case 'too_long': {
+          const dir = `${mediaDir}/${suspect.item.relPath}`;
+          const exact = isDoubleOrHalf(decision.ratio)
+            ? ` Exactly ${decision.ratio > 1 ? 'double' : 'half'} — could be a bad length header, a broken file or doubled content; real length: ${realLengthCommand(dir)}`
+            : '';
+          if (decision.kind === 'too_short') {
+            counts.too_short++;
+            await logger.warn(`Incomplete or abridged file? ${where}: audio is ${audio} but "${decision.book.title}" is ${formatMinutes(decision.book.minutes)} — re-download it.${exact}`);
+          } else {
+            counts.too_long++;
+            const hint = decision.book.minutes ? await chapterHint(dir, decision.book.minutes).catch(() => '') : '';
+            await logger.warn(`Too much audio ${where}: ${audio} but "${decision.book.title}" is ${formatMinutes(decision.book.minutes)}${hint} — duplicate copies, several books in one file, or Audible only sells a shorter edition.${exact}`);
+          }
           break;
-        case 'too_long':
-          counts.too_long++;
-          await logger.warn(`Too much audio ${where}: ${audio} but "${decision.book.title}" is ${formatMinutes(decision.book.minutes)} — duplicate copies or other books in the folder (see Library Merge)`);
-          break;
+        }
         case 'unsure':
           counts.unsure++;
           await logger.info(`Check manually ${where}: ${decision.why}${decision.candidates.length
@@ -149,7 +191,8 @@ export async function processMatchLibrary(payload: MatchLibraryPayload) {
           break;
         case 'not_found':
           counts.not_found++;
-          await logger.info(`Not found on Audible ${where}${decision.candidates.length
+          await logger.info(`Not found on Audible ${where}${suspect.current
+            ? ` — currently matched to "${suspect.current.title}" by ${suspect.current.author} (${suspect.current.asin}${suspect.current.language && suspect.current.language !== 'english' ? `, ${suspect.current.language}` : ''}); fix with Match in Audiobookshelf` : ''}${decision.candidates.length
             ? ` — closest: ${decision.candidates.map((c, i) => `${i + 1}) ${describe(c)}`).join('; ')}` : ''}`);
           break;
       }

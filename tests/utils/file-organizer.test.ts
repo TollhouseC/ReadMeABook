@@ -16,6 +16,7 @@ const fsMock = vi.hoisted(() => ({
   writeFile: vi.fn(),
   rm: vi.fn(),
   readdir: vi.fn(),
+  rename: vi.fn(),
   constants: { R_OK: 4 },
 }));
 
@@ -161,6 +162,39 @@ describe('file organizer', () => {
     expect(result.filesMovedCount).toBe(1);
     expect(loggerMock.RMABLogger.forJob).toHaveBeenCalledWith('job-1', 'organize');
     expect(metadataMock.tagMultipleFiles).not.toHaveBeenCalled();
+  });
+
+  describe('file already in the target folder', () => {
+    const setup = (existingSize: number) => {
+      configState.values.set('metadata_tagging_enabled', 'false');
+      configState.values.set('ebook_sidecar_enabled', 'false');
+      const target = path.join('/media', 'Glen Cook', 'Shadows Linger', 'book.m4b');
+      fsMock.access.mockResolvedValue(undefined); // source and target both exist
+      fsMock.stat.mockImplementation(async (p: string) => (path.normalize(p) === path.normalize(target)
+        ? { size: existingSize, isFile: () => true }
+        : { size: 500, isFile: () => true }));
+      fsMock.mkdir.mockResolvedValue(undefined);
+      fsMock.rename.mockResolvedValue(undefined);
+      copyFileMock.copyFile.mockResolvedValue(undefined);
+      fsMock.chmod.mockResolvedValue(undefined);
+      return target;
+    };
+    const run = () => new FileOrganizer('/media', '/tmp').organize('/downloads/book.m4b', { title: 'Shadows Linger', author: 'Glen Cook' }, '{author}/{title}');
+
+    it('skips a file an earlier attempt already copied (same size)', async () => {
+      setup(500);
+      const result = await run();
+      expect(copyFileMock.copyFile).not.toHaveBeenCalledWith('/downloads/book.m4b', expect.anything());
+      expect(result.filesMovedCount).toBe(0);
+    });
+
+    it('replaces a broken or stale leftover (different size) without risking it mid-copy', async () => {
+      const target = setup(12);
+      const result = await run();
+      expect(copyFileMock.copyFile).toHaveBeenCalledWith('/downloads/book.m4b', `${target}.partial`);
+      expect(fsMock.rename).toHaveBeenCalledWith(`${target}.partial`, target);
+      expect(result.filesMovedCount).toBe(1);
+    });
   });
 
   it('imports into the layout-adjusted folder and reports a moved existing book', async () => {

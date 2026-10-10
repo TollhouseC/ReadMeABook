@@ -238,6 +238,7 @@ async function organize(
 **4. Single file downloads** - Now supports files directly in downloads folder (not just directories)
 **5. Hardcoded media path** - Now reads `media_dir` from database config instead of hardcoded `/media/audiobooks`
 **6. Invalid URL error for cached cover art** - Fixed by detecting local cached thumbnails (`/api/cache/thumbnails/*`) and copying from `/app/cache/thumbnails/` instead of attempting HTTP download
+**8. Leftover file blocking an import** - A file already at the target with the same name was always skipped ("already exists"), so a broken/half-written leftover kept the new download out. Now: same size → skip (an earlier attempt copied it); different size → replaced, writing `<name>.partial` then renaming so a failed copy never destroys the old file
 **7. Several books imported into one book folder** - Shared torrent folders now import only the torrent's files; >1.8× runtime imports refused (see Shared Download Folders & Multi-Book Guard)
 
 ## Tech Stack
