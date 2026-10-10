@@ -71,6 +71,7 @@ export async function deleteRequest(
             plexGuid: true,
             absItemId: true,
             fileFormat: true,
+            filePath: true,
           },
         },
         downloadHistory: {

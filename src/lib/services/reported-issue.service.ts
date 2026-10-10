@@ -4,13 +4,38 @@
  *
  * Handles user-reported problems with available audiobooks.
  * Supports dismiss (admin closes) and replace (admin picks new torrent) workflows.
+ * A book counts as in the library the same way the book page decides it: exact ASIN, an
+ * Audible edition of it (works table), or another edition with the same title + author. The
+ * report is linked to that library item so Replace removes the right files — also for books
+ * never requested through ReadMeABook.
  */
 
 import { prisma } from '@/lib/db';
 import { findPlexMatch } from '@/lib/utils/audiobook-matcher';
+import { getSiblingAsins } from '@/lib/services/works.service';
+import { findOwnedEdition } from '@/lib/utils/edition-match';
 import { RMABLogger } from '@/lib/utils/logger';
 
 const logger = RMABLogger.create('ReportedIssue');
+
+/** The library item for this book: exact ASIN → Audible edition grouping → same title + author. */
+export async function findLibraryCopy(asin: string, title: string, author: string): Promise<{ plexGuid: string; asin: string | null } | null> {
+  const exact = await findPlexMatch({ asin, title, author });
+  if (exact) return { plexGuid: exact.plexGuid, asin };
+
+  try {
+    const siblings = (await getSiblingAsins([asin])).get(asin) ?? [];
+    if (siblings.length > 0) {
+      const sibling = await prisma.plexLibrary.findFirst({ where: { asin: { in: siblings } }, select: { plexGuid: true, asin: true } });
+      if (sibling) return sibling;
+    }
+  } catch {
+    // works table lookup is best-effort
+  }
+
+  const owned = await findOwnedEdition({ asin, title, author });
+  return owned ? { plexGuid: owned.plexGuid, asin: owned.asin } : null;
+}
 
 /**
  * Report an issue with an available audiobook
@@ -21,16 +46,14 @@ export async function reportIssue(
   reason: string,
   metadata?: { title?: string; author?: string; coverArtUrl?: string }
 ) {
-  // Validate the book is in the library
-  const plexMatch = await findPlexMatch({
-    asin,
-    title: metadata?.title || '',
-    author: metadata?.author || '',
-  });
+  // Validate the book is in the library (any edition of it)
+  const libraryCopy = await findLibraryCopy(asin, metadata?.title || '', metadata?.author || '');
 
-  if (!plexMatch) {
+  if (!libraryCopy) {
     throw new ReportedIssueError('This audiobook is not currently in your library', 404);
   }
+  const { getConfigService } = await import('./config.service');
+  const onABS = (await getConfigService().getBackendMode()) === 'audiobookshelf';
 
   // Find or create audiobook record for this ASIN
   let audiobook = await prisma.audiobook.findFirst({
@@ -48,6 +71,14 @@ export async function reportIssue(
       },
     });
     logger.info(`Created audiobook record for ASIN ${asin} to link reported issue`);
+  }
+
+  // Link the record to the library item that was found, so Replace deletes the right files
+  if (onABS ? !audiobook.absItemId : !audiobook.plexGuid) {
+    audiobook = await prisma.audiobook.update({
+      where: { id: audiobook.id },
+      data: onABS ? { absItemId: libraryCopy.plexGuid } : { plexGuid: libraryCopy.plexGuid },
+    });
   }
 
   // Check for existing open issue
@@ -151,6 +182,7 @@ export async function replaceAudiobook(
           narrator: true,
           plexGuid: true,
           absItemId: true,
+          filePath: true,
         },
       },
     },
@@ -315,10 +347,24 @@ async function deleteFromLibrary(audiobook: {
   audibleAsin: string | null;
   plexGuid: string | null;
   absItemId: string | null;
+  narrator?: string | null;
+  filePath?: string | null;
 }) {
   const { getConfigService } = await import('./config.service');
   const configService = getConfigService();
   const backendMode = await configService.getBackendMode();
+
+  // Delete the book's files first (before its Audiobookshelf item, whose path locates them)
+  try {
+    const { removeBookFolder, resolveLibraryFolder } = await import('./library-folder');
+    const mediaDir = (await configService.get('media_dir')) || '/media/audiobooks';
+    const template = (await configService.get('audiobook_path_template')) || '{author}/{title} {asin}';
+    const folder = await resolveLibraryFolder(audiobook, mediaDir, template, logger);
+    if (folder) await removeBookFolder(folder, mediaDir, logger);
+    else logger.warn(`No library folder found for "${audiobook.title}" — files not deleted`);
+  } catch (error) {
+    logger.error(`Could not delete the files of "${audiobook.title}"`, { error: error instanceof Error ? error.message : String(error) });
+  }
 
   // Delete from library backend API
   if (backendMode === 'audiobookshelf') {

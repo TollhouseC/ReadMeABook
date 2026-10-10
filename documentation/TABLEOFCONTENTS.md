@@ -127,6 +127,7 @@
 - **Bulk import (scan folders, match Audible, batch import)** → [features/bulk-import.md](features/bulk-import.md)
 - **Jobs management UI** → [backend/services/scheduler.md](backend/services/scheduler.md)
 - **Request deletion (soft delete, seeding awareness)** → [admin-features/request-deletion.md](admin-features/request-deletion.md)
+- **Reported issues (report, dismiss, replace — incl. books not requested in ReadMeABook)** → [backend/services/reported-issues.md](backend/services/reported-issues.md)
 - **Request approval system, auto-approve settings** → [admin-features/request-approval.md](admin-features/request-approval.md)
 
 ## Fixes & Improvements

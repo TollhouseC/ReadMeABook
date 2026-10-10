@@ -11,6 +11,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { RMABLogger } from '../utils/logger';
 import { buildAudiobookPath } from '../utils/file-organizer';
+import { removeBookFolder, resolveLibraryFolder } from './library-folder';
 
 const logger = RMABLogger.create('RequestDelete');
 
@@ -23,6 +24,8 @@ export interface MediaCleanupTarget {
     audibleAsin: string | null;
     plexGuid: string | null;
     absItemId: string | null;
+    /** Folder recorded at import (found first; falls back to the ABS item, then the template) */
+    filePath?: string | null;
   };
 }
 
@@ -63,25 +66,33 @@ export async function deleteRequestMedia(
       }
     }
 
-    // Build path using centralized function
-    const titleFolderPath = buildAudiobookPath(
-      mediaDir,
-      template,
-      {
-        author: request.audiobook.author,
-        title: request.audiobook.title,
-        narrator: request.audiobook.narrator || undefined,
-        asin: request.audiobook.audibleAsin || undefined,
-        year,
+    // Audiobooks: the book's actual folder (recorded path → Audiobookshelf item → template),
+    // removed only if it's a single book's folder
+    if (!isEbook) {
+      const folder = await resolveLibraryFolder({ ...request.audiobook, year }, mediaDir, template, logger);
+      if (!folder) {
+        logger.info(`Media folder not found for "${request.audiobook.title}"`);
+        filesDeleted = false;
+      } else {
+        await removeBookFolder(folder, mediaDir, logger);
+        filesDeleted = true;
       }
-    );
+    } else {
+      // Ebooks: only the ebook files in the template folder, audiobook files stay
+      const titleFolderPath = buildAudiobookPath(
+        mediaDir,
+        template,
+        {
+          author: request.audiobook.author,
+          title: request.audiobook.title,
+          narrator: request.audiobook.narrator || undefined,
+          asin: request.audiobook.audibleAsin || undefined,
+          year,
+        }
+      );
 
-    // Check if folder exists
-    try {
-      await fs.access(titleFolderPath);
-
-      if (isEbook) {
-        // For ebooks: only delete ebook files, leave audiobook files intact
+      try {
+        await fs.access(titleFolderPath);
         const ebookExtensions = ['.epub', '.pdf', '.mobi', '.azw', '.azw3', '.fb2', '.cbz', '.cbr'];
         const files = await fs.readdir(titleFolderPath);
 
@@ -98,16 +109,11 @@ export async function deleteRequestMedia(
 
         filesDeleted = deletedCount > 0;
         logger.info(`Deleted ${deletedCount} ebook file(s) from: ${titleFolderPath}`);
-      } else {
-        // For audiobooks: delete the entire title folder
-        await fs.rm(titleFolderPath, { recursive: true, force: true });
-        logger.info(`Deleted media directory: ${titleFolderPath}`);
-        filesDeleted = true;
+      } catch {
+        // Folder doesn't exist - that's okay
+        logger.info(`Media directory not found: ${titleFolderPath}`);
+        filesDeleted = false;
       }
-    } catch (accessError) {
-      // Folder doesn't exist - that's okay
-      logger.info(`Media directory not found: ${titleFolderPath}`);
-      filesDeleted = false;
     }
   } catch (error) {
     logger.error(
