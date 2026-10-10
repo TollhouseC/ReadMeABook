@@ -183,6 +183,9 @@ export async function replaceAudiobook(
           plexGuid: true,
           absItemId: true,
           filePath: true,
+          year: true,
+          series: true,
+          seriesPart: true,
         },
       },
     },
@@ -212,7 +215,7 @@ export async function replaceAudiobook(
   if (existingRequest) {
     // Has an RMAB request — use deleteRequest which handles torrent cleanup, files, library backend
     const { deleteRequest } = await import('./request-delete.service');
-    const deleteResult = await deleteRequest(existingRequest.id, adminUserId, { deleteMedia: true });
+    const deleteResult = await deleteRequest(existingRequest.id, adminUserId, { deleteMedia: true, source: 'replace' });
     if (!deleteResult.success) {
       logger.warn(`deleteRequest partial failure for ${existingRequest.id}: ${deleteResult.error}`);
       // Continue anyway - we want replacement to proceed
@@ -220,6 +223,7 @@ export async function replaceAudiobook(
     logger.info(`Deleted existing request ${existingRequest.id} for replacement`);
   } else {
     // No RMAB request — book was added to library outside RMAB
+    const { deleteFromLibrary } = await import('./library-item-delete');
     await deleteFromLibrary(audiobook);
     logger.info(`Deleted library content directly for "${audiobook.title}" (no RMAB request)`);
   }
@@ -235,6 +239,7 @@ export async function replaceAudiobook(
       fileFormat: null,
       fileSizeBytes: null,
       filesHash: null,
+      absMatchedAt: null,
     },
   });
 
@@ -333,116 +338,6 @@ export async function getOpenIssuesByAsins(asins: string[]): Promise<Set<string>
       .map((i) => i.audiobook.audibleAsin)
       .filter((asin): asin is string => asin !== null)
   );
-}
-
-/**
- * Delete audiobook content from library backend directly (no RMAB request).
- * Used when a book was added to Plex/ABS outside of RMAB.
- * Mirrors the library deletion logic from request-delete.service.ts lines 280-440.
- */
-async function deleteFromLibrary(audiobook: {
-  id: string;
-  title: string;
-  author: string;
-  audibleAsin: string | null;
-  plexGuid: string | null;
-  absItemId: string | null;
-  narrator?: string | null;
-  filePath?: string | null;
-}) {
-  const { getConfigService } = await import('./config.service');
-  const configService = getConfigService();
-  const backendMode = await configService.getBackendMode();
-
-  // Delete the book's files first (before its Audiobookshelf item, whose path locates them)
-  try {
-    const { removeBookFolder, resolveLibraryFolder } = await import('./library-folder');
-    const mediaDir = (await configService.get('media_dir')) || '/media/audiobooks';
-    const template = (await configService.get('audiobook_path_template')) || '{author}/{title} {asin}';
-    const folder = await resolveLibraryFolder(audiobook, mediaDir, template, logger);
-    if (folder) await removeBookFolder(folder, mediaDir, logger);
-    else logger.warn(`No library folder found for "${audiobook.title}" — files not deleted`);
-  } catch (error) {
-    logger.error(`Could not delete the files of "${audiobook.title}"`, { error: error instanceof Error ? error.message : String(error) });
-  }
-
-  // Delete from library backend API
-  if (backendMode === 'audiobookshelf') {
-    // absItemId may be null if the book was added outside RMAB.
-    // Fall back to looking up the ABS item ID from plex_library by ASIN
-    // (plexGuid stores the ABS item ID when using ABS backend).
-    let itemId = audiobook.absItemId;
-    if (!itemId && audiobook.audibleAsin) {
-      const libraryRecord = await prisma.plexLibrary.findFirst({
-        where: {
-          OR: [
-            { asin: audiobook.audibleAsin },
-            { plexGuid: { contains: audiobook.audibleAsin } },
-          ],
-        },
-        select: { plexGuid: true },
-      });
-      itemId = libraryRecord?.plexGuid ?? null;
-    }
-
-    if (itemId) {
-      try {
-        const { deleteABSItem } = await import('./audiobookshelf/api');
-        await deleteABSItem(itemId);
-        logger.info(`Deleted ABS item ${itemId} for "${audiobook.title}"`);
-      } catch (error) {
-        logger.error(`Failed to delete ABS item ${itemId}`, {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    } else {
-      logger.warn(`No ABS item ID found for "${audiobook.title}" (ASIN: ${audiobook.audibleAsin}) — skipping ABS deletion`);
-    }
-  } else if (backendMode === 'plex' && audiobook.plexGuid) {
-    try {
-      const plexLibraryRecord = await prisma.plexLibrary.findUnique({
-        where: { plexGuid: audiobook.plexGuid },
-        select: { plexRatingKey: true },
-      });
-
-      if (plexLibraryRecord?.plexRatingKey) {
-        const plexServerUrl = (await configService.get('plex_url')) || '';
-        const plexToken = (await configService.get('plex_token')) || '';
-
-        if (plexServerUrl && plexToken) {
-          const { getPlexService } = await import('../integrations/plex.service');
-          const plexService = getPlexService();
-          await plexService.deleteItem(plexServerUrl, plexToken, plexLibraryRecord.plexRatingKey);
-          logger.info(`Deleted Plex item ${plexLibraryRecord.plexRatingKey} for "${audiobook.title}"`);
-        }
-      }
-    } catch (error) {
-      logger.error(`Failed to delete Plex item for "${audiobook.title}"`, {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  // Delete plex_library records by ASIN
-  if (audiobook.audibleAsin) {
-    try {
-      const result = await prisma.plexLibrary.deleteMany({
-        where: {
-          OR: [
-            { asin: audiobook.audibleAsin },
-            { plexGuid: { contains: audiobook.audibleAsin } },
-          ],
-        },
-      });
-      if (result.count > 0) {
-        logger.info(`Deleted ${result.count} plex_library record(s) by ASIN "${audiobook.audibleAsin}"`);
-      }
-    } catch (error) {
-      logger.error(`Failed to delete plex_library records for ASIN "${audiobook.audibleAsin}"`, {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
 }
 
 /**

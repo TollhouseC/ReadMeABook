@@ -66,6 +66,7 @@ Result: Douglas Adams/Stephen Fry/The Hitchhiker's Guide to the Galaxy/
 2. Identify audiobook files (.m4b, .m4a, .mp3, .mp4, .aa, .aax, .flac, .ogg) - supports both directories and single files
 3. Read media directory and path template from database config (`media_dir`, `audiobook_path_template`)
 4. Apply template to create target path: `[media_dir]/[template result]/`
+4b. A `metadata.json` already in the target folder (left by an earlier copy) is deleted — Audiobookshelf would prefer it over the new files' tags
 5. **Copy** files (not move - originals stay for seeding)
 6. **Tag metadata** (if enabled) - writes correct title, author, narrator, ASIN to audio files
 7. Copy cover art if found, else download from Audible
@@ -73,6 +74,15 @@ Result: Douglas Adams/Stephen Fry/The Hitchhiker's Guide to the Galaxy/
 9. Update request status to `downloaded` and store file hash in `audiobooks.files_hash`
 10. **Trigger filesystem scan** (if enabled) - tells Plex/ABS to scan for new files
 11. Originals remain until seeding requirements met
+12. **Match to the requested edition (Audiobookshelf)** — see below
+
+## Import Edition Match (Audiobookshelf)
+- `src/lib/services/import-match.ts` `matchImportsToRequestedEdition(logger)`, called at the end of the recently-added check and the full library scan (ABS backend only).
+- Why: imports are ASIN-tagged, so ABS's scan never matches them and RMAB's file-hash matching only covers items without an ASIN → item kept tag title/cover/series (Thrawn).
+- Picks books with `absMatchedAt` null, `absItemId` set, an `available` audiobook request, `completedAt` within `IMPORT_MATCH_WINDOW_DAYS` (3 — older books may have manual ABS edits).
+- Item = the one at `relPath` == `filePath` relative to `media_dir` (linked item checked first, else library listing) — an old copy with the same ASIN is never matched; not scanned yet → waits.
+- `triggerABSItemMatch(item, asin, { overrideDetails, overrideCover, throwOnError })`; success (ASIN on item == requested, `updated` or already up to date) → `absMatchedAt` + `absItemId` saved; else warn, retried next check.
+- `absMatchedAt` reset to null on import (organize-files) and on issue Replace.
 
 ## Filesystem Scan Triggering
 
@@ -240,6 +250,7 @@ async function organize(
 **5. Hardcoded media path** - Now reads `media_dir` from database config instead of hardcoded `/media/audiobooks`
 **6. Invalid URL error for cached cover art** - Fixed by detecting local cached thumbnails (`/api/cache/thumbnails/*`) and copying from `/app/cache/thumbnails/` instead of attempting HTTP download
 **8. Leftover file blocking an import** - A file already at the target with the same name was always skipped ("already exists"), so a broken/half-written leftover kept the new download out. Now: same size → skip (an earlier attempt copied it); different size → replaced, writing `<name>.partial` then renaming so a failed copy never destroys the old file
+**9. Imports keeping tag metadata in Audiobookshelf (2026-10-10)** - ASIN-tagged imports were never matched (ABS + RMAB only match items without an ASIN); now matched once to the requested edition with override (Import Edition Match). Stale `metadata.json` in the target folder removed before copying
 **7. Several books imported into one book folder** - Shared torrent folders now import only the torrent's files; >1.8× runtime imports refused (see Shared Download Folders & Multi-Book Guard)
 
 ## Tech Stack

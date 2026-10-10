@@ -50,7 +50,7 @@ PostgreSQL database storing users, audiobooks, requests, downloads, configuratio
 ### Audiobooks
 - `id` (UUID PK), `audible_asin` (nullable), `title`, `author`, `narrator`, `description`
 - `cover_art_url`, `file_path`, `file_format`, `file_size_bytes`
-- `plex_guid` (nullable), `plex_library_id` (nullable), `abs_item_id` (nullable)
+- `plex_guid` (nullable), `plex_library_id` (nullable), `abs_item_id` (nullable), `abs_matched_at` (nullable; ABS item matched to the requested edition after import — [file-organization.md](../phase3/file-organization.md#import-edition-match-audiobookshelf))
 - `files_hash` (nullable) - SHA256 hash of sorted audio filenames for library matching
 - `version_label` (nullable) - alternate-version label (e.g. "Dramatized Adaptation"); appended to series + title at import (see [features/watched-lists.md](../features/watched-lists.md))
 - `status` ('requested'|'downloading'|'processing'|'completed'|'failed')

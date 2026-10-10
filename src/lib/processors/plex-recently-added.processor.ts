@@ -334,13 +334,22 @@ export async function processPlexRecentlyAddedCheck(payload: PlexRecentlyAddedPa
 
             matchedDownloads++;
 
-            // Note: Audiobookshelf metadata matching is handled in the file hash phase above
-            // Items without ASIN get file-hash-matched ASIN, items with ASIN already have correct metadata
+            // Audiobookshelf: items without an ASIN are matched in the file hash phase above;
+            // imports (ASIN tagged) are matched to the requested edition below
           }
         } catch (error) {
           logger.error(`Failed to match request ${request.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
       }
+    }
+
+    // ReadMeABook tags the ASIN into imports, so Audiobookshelf skips matching them — match each
+    // new import to the requested edition once (verified, retried next check on failure)
+    if (backendMode === 'audiobookshelf') {
+      const { matchImportsToRequestedEdition } = await import('../services/import-match');
+      await matchImportsToRequestedEdition(logger).catch(error => {
+        logger.error(`Import edition match failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
     }
 
     logger.info(`Complete: ${newCount} new, ${updatedCount} updated, ${matchedDownloads} matched requests`);

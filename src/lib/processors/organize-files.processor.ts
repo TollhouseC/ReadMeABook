@@ -292,6 +292,7 @@ export async function processOrganizeFiles(payload: OrganizeFilesPayload): Promi
         filesHash: filesHash || null,
         status: 'completed',
         completedAt: new Date(),
+        absMatchedAt: null, // matched to the requested edition after the library picks it up
         updatedAt: new Date(),
       },
     });

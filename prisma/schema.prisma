@@ -203,6 +203,7 @@ model Audiobook {
 
   // Audiobookshelf integration (alternative to Plex)
   absItemId String? @map("abs_item_id") // Audiobookshelf item ID
+  absMatchedAt DateTime? @map("abs_matched_at") // ABS item matched to the requested edition after import
 
   // File hash for accurate library matching (SHA256 of sorted audio filenames)
   filesHash String? @map("files_hash") @db.Text

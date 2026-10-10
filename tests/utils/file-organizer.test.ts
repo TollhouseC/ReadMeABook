@@ -171,6 +171,25 @@ describe('file organizer', () => {
     expect(metadataMock.tagMultipleFiles).not.toHaveBeenCalled();
   });
 
+  it('removes a metadata.json left in the target folder by an earlier copy', async () => {
+    configState.values.set('metadata_tagging_enabled', 'false');
+    configState.values.set('ebook_sidecar_enabled', 'false');
+    fsMock.stat.mockResolvedValue({ isFile: () => true });
+    fsMock.access.mockImplementation(async (filePath: string) => {
+      if (filePath === '/downloads/book.m4b') return undefined;
+      throw new Error('missing');
+    });
+    fsMock.mkdir.mockResolvedValue(undefined);
+    fsMock.unlink.mockResolvedValue(undefined);
+    copyFileMock.copyFile.mockResolvedValue(undefined);
+    fsMock.chmod.mockResolvedValue(undefined);
+
+    const result = await new FileOrganizer('/media', '/tmp').organize('/downloads/book.m4b', { title: 'Thrawn', author: 'Timothy Zahn' }, '{author}/{title}');
+
+    expect(result.success).toBe(true);
+    expect(fsMock.unlink).toHaveBeenCalledWith(path.join('/media', 'Timothy Zahn', 'Thrawn', 'metadata.json'));
+  });
+
   describe('single MP3 on import', () => {
     const setup = () => {
       configState.values.set('metadata_tagging_enabled', 'false');

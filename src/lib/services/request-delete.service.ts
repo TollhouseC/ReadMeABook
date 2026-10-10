@@ -46,12 +46,14 @@ export interface DeleteRequestResult {
 export interface DeleteRequestOptions {
   /** Delete media files + library entry (default true). False clears only the request. */
   deleteMedia?: boolean;
+  /** Who is deleting — shown when an old copy can't be removed (Health Report leftovers) */
+  source?: 'delete' | 'replace';
 }
 
 export async function deleteRequest(
   requestId: string,
   adminUserId: string,
-  { deleteMedia = true }: DeleteRequestOptions = {}
+  { deleteMedia = true, source = 'delete' }: DeleteRequestOptions = {}
 ): Promise<DeleteRequestResult> {
   try {
     // 1. Find request (only active, non-deleted)
@@ -72,6 +74,8 @@ export async function deleteRequest(
             absItemId: true,
             fileFormat: true,
             filePath: true,
+            series: true,
+            seriesPart: true,
           },
         },
         downloadHistory: {
@@ -205,7 +209,7 @@ export async function deleteRequest(
     // 3-4. Media files + library entry — only when the admin opted to delete media
     let filesDeleted = false;
     if (deleteMedia) {
-      filesDeleted = await deleteRequestMedia(requestId, request, isEbook);
+      filesDeleted = await deleteRequestMedia(requestId, request, isEbook, source);
     } else {
       logger.info(`Keeping media files and library entry for request ${requestId} (request-only delete)`);
     }

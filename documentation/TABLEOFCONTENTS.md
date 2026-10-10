@@ -128,6 +128,8 @@
 - **Jobs management UI** → [backend/services/scheduler.md](backend/services/scheduler.md)
 - **Request deletion (soft delete, seeding awareness)** → [admin-features/request-deletion.md](admin-features/request-deletion.md)
 - **Reported issues (report, dismiss, replace — incl. books not requested in ReadMeABook)** → [backend/services/reported-issues.md](backend/services/reported-issues.md)
+- **Old copies Replace/delete couldn't remove (Health Report "Replace Leftovers")** → [backend/services/reported-issues.md](backend/services/reported-issues.md)
+- **Imports matched to the requested edition in Audiobookshelf (absMatchedAt)** → [phase3/file-organization.md](phase3/file-organization.md#import-edition-match-audiobookshelf)
 - **Request approval system, auto-approve settings** → [admin-features/request-approval.md](admin-features/request-approval.md)
 
 ## Fixes & Improvements

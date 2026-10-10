@@ -6,7 +6,8 @@
  * (sections headed "===== <check> (report only) =====") and ends with a one-line-per-check
  * summary — meant to be scheduled monthly and read (or pasted for review) in one go.
  * Never changes anything: it calls the same processors as the individual Report Only jobs,
- * which stay available for debugging and for applying fixes one at a time. A failing check
+ * which stay available for debugging and for applying fixes one at a time. Also lists old
+ * copies Replace couldn't delete (library-leftovers). A failing check
  * is reported and the rest still run; cancelling stops after the current check.
  */
 
@@ -46,6 +47,11 @@ export const HEALTH_CHECKS: Check[] = [
   {
     key: 'chapter_sync', name: 'Chapter Sync',
     run: async (jobId) => (await import('./fix-chapters.processor')).processFixChapters({ mode: 'sync_report', jobId }),
+  },
+  {
+    // Old copies Replace / delete-with-media couldn't remove (the new download went ahead)
+    key: 'leftovers', name: 'Replace Leftovers',
+    run: async (jobId) => (await import('../services/library-leftovers')).checkLeftovers(RMABLogger.forJob(jobId, 'LibraryLeftovers')),
   },
 ];
 

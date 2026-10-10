@@ -11,7 +11,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { RMABLogger } from '../utils/logger';
 import { buildAudiobookPath } from '../utils/file-organizer';
-import { removeBookFolder, resolveLibraryFolder } from './library-folder';
+import { deleteOldCopy } from './library-leftovers';
 
 const logger = RMABLogger.create('RequestDelete');
 
@@ -26,6 +26,8 @@ export interface MediaCleanupTarget {
     absItemId: string | null;
     /** Folder recorded at import (found first; falls back to the ABS item, then the template) */
     filePath?: string | null;
+    series?: string | null;
+    seriesPart?: string | null;
   };
 }
 
@@ -38,12 +40,14 @@ export interface MediaCleanupTarget {
 export async function deleteRequestMedia(
   requestId: string,
   request: MediaCleanupTarget,
-  isEbook: boolean
+  isEbook: boolean,
+  source: 'delete' | 'replace' = 'delete'
 ): Promise<boolean> {
   // 3. Delete media files
   // For audiobooks: delete entire title folder
   // For ebooks: delete only ebook files (leave audiobook files intact)
   let filesDeleted = false;
+  let folderKept = false;
   try {
     const { getConfigService } = await import('./config.service');
     const configService = getConfigService();
@@ -66,17 +70,12 @@ export async function deleteRequestMedia(
       }
     }
 
-    // Audiobooks: the book's actual folder (recorded path → Audiobookshelf item → template),
-    // removed only if it's a single book's folder
+    // Audiobooks: the book's actual folder (recorded path → Audiobookshelf item → same ASIN →
+    // template), removed only if it's a single book's folder; otherwise recorded as a leftover
     if (!isEbook) {
-      const folder = await resolveLibraryFolder({ ...request.audiobook, year }, mediaDir, template, logger);
-      if (!folder) {
-        logger.info(`Media folder not found for "${request.audiobook.title}"`);
-        filesDeleted = false;
-      } else {
-        await removeBookFolder(folder, mediaDir, logger);
-        filesDeleted = true;
-      }
+      const outcome = await deleteOldCopy({ ...request.audiobook, year }, mediaDir, template, source, logger);
+      filesDeleted = !!outcome.deleted;
+      folderKept = outcome.kept;
     } else {
       // Ebooks: only the ebook files in the template folder, audiobook files stay
       const titleFolderPath = buildAudiobookPath(
@@ -132,8 +131,11 @@ export async function deleteRequestMedia(
       const configService = getConfigService();
       const backendMode = await configService.getBackendMode();
 
-      // Delete from library backend (ABS or Plex)
-      if (backendMode === 'audiobookshelf' && request.audiobook.absItemId) {
+      // Delete from library backend (ABS or Plex). Old files still on disk → the ABS item
+      // stays, so the Health Report can point at the leftover folder
+      if (backendMode === 'audiobookshelf' && folderKept) {
+        logger.warn(`Keeping the Audiobookshelf item of "${request.audiobook.title}" — its files were not deleted`);
+      } else if (backendMode === 'audiobookshelf' && request.audiobook.absItemId) {
         // Audiobookshelf: delete the library item from ABS
         try {
           const { deleteABSItem } = await import('../services/audiobookshelf/api');

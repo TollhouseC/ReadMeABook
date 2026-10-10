@@ -407,6 +407,15 @@ export class FileOrganizer {
       // Create target directory
       await fs.mkdir(targetPath, { recursive: true, mode: this.dirMode });
 
+      // A metadata.json left by an earlier copy in this folder would win over the new files'
+      // tags in Audiobookshelf (old title/chapters/ASIN) — remove it
+      try {
+        await fs.unlink(path.join(targetPath, 'metadata.json'));
+        await logger?.info('Removed a leftover metadata.json from the target folder');
+      } catch {
+        // none there (the usual case)
+      }
+
       // Determine if file renaming should be applied
       const shouldRename = renameConfig?.enabled && renameConfig.template;
       const isMultiFile = audioFiles.length > 1;

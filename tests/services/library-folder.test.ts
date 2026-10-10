@@ -9,7 +9,10 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const absMock = vi.hoisted(() => ({ getABSItem: vi.fn() }));
+const dbMock = vi.hoisted(() => ({ findMany: vi.fn(), backend: vi.fn() }));
 vi.mock('@/lib/services/audiobookshelf/api', () => absMock);
+vi.mock('@/lib/db', () => ({ prisma: { plexLibrary: { findMany: dbMock.findMany } } }));
+vi.mock('@/lib/services/config.service', () => ({ getConfigService: () => ({ getBackendMode: dbMock.backend }) }));
 
 import { removeBookFolder, resolveLibraryFolder } from '@/lib/services/library-folder';
 
@@ -24,6 +27,8 @@ const file = (dir: string, name: string) => fs.writeFile(path.join(dir, name), '
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  dbMock.findMany.mockResolvedValue([]);
+  dbMock.backend.mockResolvedValue('audiobookshelf');
   lib = await fs.mkdtemp(path.join(os.tmpdir(), 'rmab-libfolder-'));
 });
 afterEach(async () => {
@@ -41,6 +46,27 @@ describe('resolveLibraryFolder', () => {
     expect(await resolveLibraryFolder({ title: 'A Hat Full of Sky', author: 'Terry Pratchett', absItemId: 'li' }, lib, TEMPLATE)).toBe(moved);
     expect(await resolveLibraryFolder({ title: 'Shadows Linger', author: 'Glen Cook' }, lib, TEMPLATE)).toBe(templated);
     expect(await resolveLibraryFolder({ title: 'Missing', author: 'Nobody' }, lib, TEMPLATE)).toBeNull();
+  });
+
+  it('finds a moved book through another Audiobookshelf item with its exact ASIN when the linked id is stale', async () => {
+    const moved = await mk('Timothy Zahn', 'Star Wars Thrawn', 'Thrawn (Star Wars)');
+    dbMock.findMany.mockResolvedValue([{ plexGuid: 'li-stale' }, { plexGuid: 'li-moved' }]);
+    absMock.getABSItem.mockImplementation(async (id: string) => {
+      if (id === 'li-moved') return { relPath: 'Timothy Zahn/Star Wars Thrawn/Thrawn (Star Wars)', isFile: false };
+      throw new Error('404');
+    });
+
+    const book = { title: 'Thrawn', author: 'Timothy Zahn', audibleAsin: 'B01N7KSAV2', absItemId: 'li-stale' };
+    expect(await resolveLibraryFolder(book, lib, TEMPLATE)).toBe(moved);
+    expect(dbMock.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { asin: { equals: 'B01N7KSAV2', mode: 'insensitive' } } }));
+  });
+
+  it('never looks items up by ASIN on Plex, and puts the series in the template path', async () => {
+    dbMock.backend.mockResolvedValue('plex');
+    const inSeries = await mk('Glen Cook', 'The Black Company', 'Shadows Linger');
+    const book = { title: 'Shadows Linger', author: 'Glen Cook', audibleAsin: 'B0X', series: 'The Black Company' };
+    expect(await resolveLibraryFolder(book, lib, '{author}/{series}/{title}')).toBe(inSeries);
+    expect(dbMock.findMany).not.toHaveBeenCalled();
   });
 
   it('ignores a recorded file path by using its folder, and paths outside the library', async () => {
