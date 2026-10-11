@@ -422,6 +422,26 @@ describe('NZBGetService', () => {
   // Getting Downloads
   // =========================================================================
 
+  describe('findDownloadByName', () => {
+    it('finds the newest finished job for a release when the queue has none', async () => {
+      const hist = (NZBID: number, Name: string, Status: string, HistoryTime: number) => ({
+        NZBID, Name, Status, HistoryTime, FileSizeMB: 10, DownloadedSizeMB: 10, Category: 'readmeabook', DestDir: `/downloads/${NZBID}`, FinalDir: '',
+      });
+      clientMock.post
+        .mockResolvedValueOnce({ data: { result: [] } }) // listgroups
+        .mockResolvedValueOnce({ data: { result: [
+          hist(7, 'Star.Wars.-.Survivors.Quest.(NMR)', 'SUCCESS/ALL', 100),
+          hist(9, 'Star Wars - Survivors Quest (NMR)', 'SUCCESS/ALL', 200),
+          hist(8, 'Star Wars - Outbound Flight', 'SUCCESS/ALL', 300),
+        ] } });
+
+      const service = new NZBGetService('http://nzbget:6789', 'nzbget', 'pass');
+      const found = await service.findDownloadByName('Star Wars - Survivors Quest (NMR)', { includeHistory: true });
+
+      expect(found).toMatchObject({ id: '9', status: 'completed' });
+    });
+  });
+
   describe('getDownload', () => {
     it('returns queue item when download is active', async () => {
       // Mock listgroups (queue check)

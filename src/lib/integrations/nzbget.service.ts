@@ -5,6 +5,7 @@
 
 import axios, { AxiosInstance } from 'axios';
 import { fetchSourceFile, SourceFetchError } from '../utils/fetch-source-file';
+import { pickRelease, sameRelease } from '../services/download-lookup';
 import https from 'https';
 import zlib from 'zlib';
 import { RMABLogger } from '@/lib/utils/logger';
@@ -331,6 +332,18 @@ export class NZBGetService implements IDownloadClient {
     }
 
     return null;
+  }
+
+  /** A job by release name — queue first, then history (newest, non-failed preferred). */
+  async findDownloadByName(name: string, options: { includeHistory?: boolean } = {}): Promise<DownloadInfo | null> {
+    const groups = (await this.rpc<NZBGetGroupItem[]>('listgroups', [0])) ?? [];
+    // Map only the name matches (mapping a queue item may query NZBGet for speed)
+    const queued = pickRelease(await Promise.all(groups.filter(g => sameRelease(g.NZBName, name)).map(g => this.mapGroupToDownloadInfo(g))), name);
+    if (queued || !options.includeHistory) return queued;
+    const history = ((await this.rpc<NZBGetHistoryItem[]>('history', [false])) ?? [])
+      .map(h => this.mapHistoryToDownloadInfo(h))
+      .sort((a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0));
+    return pickRelease(history, name);
   }
 
   /**

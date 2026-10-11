@@ -140,7 +140,15 @@ finalPath = config.customPath ? path.join(downloadDir, config.customPath) : down
 1. Detect protocol from result (`ProwlarrService.isNZBResult()`)
 2. Get appropriate client via manager (`getClientForProtocol()`)
 3. Route to correct service (qBittorrent, Transmission, or SABnzbd)
-4. Create download history record
+4. Same release already in the client's **queue** (`findExistingDownload`, usenet) → monitor that job, no second add
+5. Older `selected` rows of the request → `selected=false`; create the new (only) selected download history record
+
+### Lost IDs & Duplicate Adds (usenet)
+- `src/lib/services/download-lookup.ts`. Why: SABnzbd's own Retry re-adds a failed job under a **new nzo_id** (IDs are UUIDs on current SABnzbd) and drops the old history entry → monitor "not found" → request failed in ~6s (Bull 2s/4s retries) while the download finished; RMAB Retry then re-added the NZB (Survivor's Quest: 4 adds, 3 copies).
+- `IDownloadClient.findDownloadByName?(name, { includeHistory })` — SABnzbd (queue, then history 200), NZBGet (listgroups, then history newest first). `sameRelease`: alnum-lowercased names equal, or one a prefix of the other (≥12 chars); `pickRelease`: non-failed first.
+- **Monitor** (`monitor-download.processor.ts`): `locateDownload(client, id, torrentName)` = by ID, else by release name → new ID saved (`downloadHistory.updateMany` by old `downloadClientId`, also `nzbId`; pack-linked rows move too) and used for later polls. Still not found → re-check with backoff (`notFoundCount`, `MAX_NOT_FOUND` = 10 ≈ 35 min) → then request failed once (`… (checked for ~35 min, also by release name)`), no Bull retry.
+- **SABnzbd `getNZB`**: queue → newest 100 history → `mode=history&nzo_ids=<id>` (older entries).
+- **Retry** (`/api/admin/requests/[id]/retry-download`): saved ID not alive → `findExistingDownload(client, torrentName, { maxAgeMs: 3 days })` (queue, or completed within 3 days) → row updated to that ID, monitoring resumed (`resumed_monitoring`); else re-added.
 
 ### Migration
 **Auto-migration** from legacy single-client config to new JSON array format on first access:

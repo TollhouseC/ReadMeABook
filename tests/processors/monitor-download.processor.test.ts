@@ -419,24 +419,71 @@ describe('processMonitorDownload', () => {
     );
   });
 
-  it('does not mark request failed for transient NZB not found errors', async () => {
+  it('keeps checking with backoff when an NZB is not found, instead of failing in seconds', async () => {
     const sabClientMock = {
       clientType: 'sabnzbd',
       protocol: 'usenet',
       getDownload: vi.fn().mockResolvedValue(null),
+      findDownloadByName: vi.fn().mockResolvedValue(null),
     };
     downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(sabClientMock);
+    prismaMock.downloadHistory.findUnique.mockResolvedValueOnce({ downloadStatus: 'downloading', packFiles: null, torrentName: 'Star Wars - Survivors Quest (NMR)' });
 
     const { processMonitorDownload } = await import('@/lib/processors/monitor-download.processor');
-    await expect(processMonitorDownload({
+    const result = await processMonitorDownload({
       requestId: 'req-5',
       downloadHistoryId: 'dh-5',
       downloadClientId: 'nzb-missing',
       downloadClient: 'sabnzbd',
       jobId: 'job-5',
-    })).rejects.toThrow(/not found/i);
+    });
 
+    expect(result).toMatchObject({ completed: false, notFoundCount: 1 });
+    expect(sabClientMock.findDownloadByName).toHaveBeenCalledWith('Star Wars - Survivors Quest (NMR)', { includeHistory: true });
+    expect(jobQueueMock.addMonitorJob).toHaveBeenCalledWith('req-5', 'dh-5', 'nzb-missing', 'sabnzbd', 20, undefined, 0, undefined, undefined, 1);
     expect(prismaMock.request.update).not.toHaveBeenCalled();
+  });
+
+  it('fails the request once (no Bull retry) after every not-found check is used up', async () => {
+    const sabClientMock = { clientType: 'sabnzbd', protocol: 'usenet', getDownload: vi.fn().mockResolvedValue(null), findDownloadByName: vi.fn().mockResolvedValue(null) };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(sabClientMock);
+    prismaMock.request.update.mockResolvedValue({});
+    prismaMock.request.findUnique.mockResolvedValue(null);
+
+    const { processMonitorDownload } = await import('@/lib/processors/monitor-download.processor');
+    const result = await processMonitorDownload({
+      requestId: 'req-5', downloadHistoryId: 'dh-5', downloadClientId: 'nzb-missing', downloadClient: 'sabnzbd', jobId: 'job-5', notFoundCount: 9,
+    });
+
+    expect(result).toMatchObject({ success: false, completed: true });
+    expect(prismaMock.request.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'failed', errorMessage: expect.stringContaining('also by release name') }),
+    }));
+    expect(jobQueueMock.addMonitorJob).not.toHaveBeenCalled();
+  });
+
+  it('follows a job SABnzbd re-added under a new ID and saves that ID', async () => {
+    const sabClientMock = {
+      clientType: 'sabnzbd',
+      protocol: 'usenet',
+      getDownload: vi.fn().mockResolvedValue(null),
+      findDownloadByName: vi.fn().mockResolvedValue({
+        id: 'sab-new', name: 'Star Wars - Survivors Quest (NMR)', status: 'downloading', progress: 0.5, downloadSpeed: 1000, eta: 60, size: 1, bytesDownloaded: 0, category: 'rmab',
+      }),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(sabClientMock);
+    prismaMock.downloadHistory.findUnique.mockResolvedValueOnce({ downloadStatus: 'downloading', packFiles: null, torrentName: 'Star Wars - Survivors Quest (NMR)' });
+    prismaMock.downloadHistory.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.downloadHistory.update.mockResolvedValue({});
+    prismaMock.request.update.mockResolvedValue({});
+
+    const { processMonitorDownload } = await import('@/lib/processors/monitor-download.processor');
+    await processMonitorDownload({ requestId: 'req-5', downloadHistoryId: 'dh-5', downloadClientId: 'sab-old', downloadClient: 'sabnzbd', jobId: 'job-5' });
+
+    expect(prismaMock.downloadHistory.updateMany).toHaveBeenCalledWith({
+      where: { downloadClientId: 'sab-old' }, data: { downloadClientId: 'sab-new', nzbId: 'sab-new' },
+    });
+    expect(jobQueueMock.addMonitorJob.mock.calls[0][2]).toBe('sab-new');
   });
 
   it('marks request failed when download client is unsupported', async () => {

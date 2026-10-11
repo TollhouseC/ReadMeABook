@@ -16,10 +16,14 @@ import { getDownloadClientManager } from '@/lib/services/download-client-manager
 import { CLIENT_PROTOCOL_MAP, DownloadClientType } from '@/lib/interfaces/download-client.interface';
 import { TorrentResult } from '@/lib/utils/ranking-algorithm';
 import { RMABLogger } from '@/lib/utils/logger';
+import { findExistingDownload } from '@/lib/services/download-lookup';
 
 const logger = RMABLogger.create('API.Admin.Requests.RetryDownload');
 
 /** Download statuses considered "alive" — monitoring can be resumed */
+/** A finished job for the same release this recent is picked up instead of re-adding it */
+const REUSE_COMPLETED_MS = 3 * 24 * 60 * 60 * 1000;
+
 const ALIVE_STATUSES = new Set([
   'downloading',
   'queued',
@@ -127,7 +131,23 @@ export async function POST(
             const client = await manager.getClientServiceForProtocol(protocol);
 
             if (client) {
-              const downloadInfo = await client.getDownload(clientId!);
+              let downloadInfo = await client.getDownload(clientId!);
+              let monitorId = clientId!;
+
+              // Saved ID gone (job retried/re-added in the client) → the same release under a
+              // new ID, in the queue or finished recently — instead of adding another copy
+              if (!downloadInfo || !ALIVE_STATUSES.has(downloadInfo.status)) {
+                const existing = await findExistingDownload(client, downloadHistory.torrentName, { maxAgeMs: REUSE_COMPLETED_MS });
+                if (existing && existing.id !== clientId) {
+                  logger.info(`Retry download: "${existing.name}" found in ${client.clientType} under ID ${existing.id} (${existing.status}) — monitoring it instead of re-adding`, { requestId: id });
+                  await prisma.downloadHistory.update({
+                    where: { id: downloadHistory.id },
+                    data: { downloadClientId: existing.id, ...(client.protocol === 'usenet' && { nzbId: existing.id }), downloadStatus: existing.status },
+                  });
+                  downloadInfo = existing;
+                  monitorId = existing.id;
+                }
+              }
 
               if (downloadInfo && ALIVE_STATUSES.has(downloadInfo.status)) {
                 // Download is still alive — restart monitoring
@@ -141,7 +161,7 @@ export async function POST(
                 await jobQueue.addMonitorJob(
                   id,
                   downloadHistory.id,
-                  clientId!, // canCheckClient guard ensures clientId is non-null
+                  monitorId,
                   clientType as DownloadClientType,
                   0 // no delay — start immediately
                 );

@@ -159,6 +159,28 @@ describe('processDownloadTorrent', () => {
     );
   });
 
+  it('monitors a copy already in the SABnzbd queue instead of adding a second one, and keeps one selected row', async () => {
+    const sabClientMock = {
+      clientType: 'sabnzbd',
+      protocol: 'usenet',
+      addDownload: vi.fn().mockResolvedValue('nzb-dup'),
+      findDownloadByName: vi.fn().mockResolvedValue({ id: 'nzb-queued', name: 'Book2 - Author2', status: 'downloading' }),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(sabClientMock);
+    downloadClientManagerMock.getClientForProtocol.mockResolvedValue({ id: 'client-2', type: 'sabnzbd', enabled: true, category: 'readmeabook' });
+    prismaMock.request.update.mockResolvedValue({});
+    prismaMock.downloadHistory.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.downloadHistory.create.mockResolvedValue({ id: 'dh-3' });
+
+    const { processDownloadTorrent } = await import('@/lib/processors/download-torrent.processor');
+    await processDownloadTorrent(nzbPayload);
+
+    expect(sabClientMock.findDownloadByName).toHaveBeenCalledWith('Book2 - Author2', { includeHistory: false });
+    expect(sabClientMock.addDownload).not.toHaveBeenCalled();
+    expect(prismaMock.downloadHistory.updateMany).toHaveBeenCalledWith({ where: { requestId: 'req-2', selected: true }, data: { selected: false } });
+    expect(jobQueueMock.addMonitorJob).toHaveBeenCalledWith('req-2', 'dh-3', 'nzb-queued', 'sabnzbd', 3);
+  });
+
   it('throws error when no client configured for protocol', async () => {
     downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(null);
     prismaMock.request.update.mockResolvedValue({});

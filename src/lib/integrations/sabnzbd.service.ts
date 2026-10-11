@@ -5,6 +5,7 @@
 
 import axios, { AxiosInstance } from 'axios';
 import { fetchSourceFile, SourceFetchError } from '../utils/fetch-source-file';
+import { pickRelease } from '../services/download-lookup';
 import https from 'https';
 import FormData from 'form-data';
 import { RMABLogger } from '@/lib/utils/logger';
@@ -610,7 +611,9 @@ export class SABnzbdService implements IDownloadClient {
 
     // Not in queue, check history
     const history = await this.getHistory(100);
-    const historyItem = history.find(item => item.nzbId === nzbId);
+    const historyItem = history.find(item => item.nzbId === nzbId) ??
+      // Older than the newest 100 — ask for this ID directly
+      (await this.getHistory(1, nzbId)).find(item => item.nzbId === nzbId);
 
     if (historyItem) {
       return this.mapHistoryItemToNZBInfo(historyItem);
@@ -618,6 +621,15 @@ export class SABnzbdService implements IDownloadClient {
 
     // Not found
     return null;
+  }
+
+  /** A job by release name — queue first, then history (newest, non-failed preferred). */
+  async findDownloadByName(name: string, options: { includeHistory?: boolean } = {}): Promise<DownloadInfo | null> {
+    const queue = (await this.getQueue()).map(item => this.mapNZBInfoToDownloadInfo(this.mapQueueItemToNZBInfo(item)));
+    const queued = pickRelease(queue, name);
+    if (queued || !options.includeHistory) return queued;
+    const history = (await this.getHistory(200)).map(item => this.mapNZBInfoToDownloadInfo(this.mapHistoryItemToNZBInfo(item)));
+    return pickRelease(history, name);
   }
 
   /**
@@ -649,11 +661,12 @@ export class SABnzbdService implements IDownloadClient {
   /**
    * Get download history
    */
-  async getHistory(limit: number = 100): Promise<HistoryItem[]> {
+  async getHistory(limit: number = 100, nzoIds?: string): Promise<HistoryItem[]> {
     const response = await this.client.get('/api', {
       params: {
         mode: 'history',
         limit,
+        ...(nzoIds && { nzo_ids: nzoIds }),
         output: 'json',
         apikey: this.apiKey,
       },

@@ -73,6 +73,7 @@
 - **Release language filter (English default)** → [phase3/ranking-algorithm.md](phase3/ranking-algorithm.md#release-language-filter)
 - **Wrong series book guard (Book 4 for a book 1 request)** → [phase3/ranking-algorithm.md](phase3/ranking-algorithm.md#series-book-number-guard)
 - **Multi-download-client support (qBittorrent, Transmission, SABnzbd, NZBGet)** → [phase3/download-clients.md](phase3/download-clients.md)
+- **Usenet job re-added under a new ID / "not found in sabnzbd" / duplicate NZB adds on Retry** → [phase3/download-clients.md](phase3/download-clients.md#lost-ids--duplicate-adds-usenet)
 - **qBittorrent integration (torrents)** → [phase3/qbittorrent.md](phase3/qbittorrent.md)
 - **SABnzbd integration (Usenet/NZB)** → [phase3/sabnzbd.md](phase3/sabnzbd.md)
 - **File organization, seeding** → [phase3/file-organization.md](phase3/file-organization.md)

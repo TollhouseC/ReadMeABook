@@ -481,12 +481,37 @@ describe('SABnzbdService', () => {
   it('returns null when NZB is not found in queue or history', async () => {
     clientMock.get
       .mockResolvedValueOnce({ data: { queue: { slots: [] } } })
+      .mockResolvedValueOnce({ data: { history: { slots: [] } } })
       .mockResolvedValueOnce({ data: { history: { slots: [] } } });
 
     const service = new SABnzbdService('http://sab', 'key');
     const info = await service.getNZB('missing');
 
     expect(info).toBeNull();
+    // Older than the newest 100 history entries: asked for by ID
+    expect(clientMock.get.mock.calls[2][1].params).toMatchObject({ mode: 'history', nzo_ids: 'missing' });
+  });
+
+  it('finds a job by release name — the live copy first, failed ones last', async () => {
+    clientMock.get
+      .mockResolvedValueOnce({ data: { queue: { slots: [] } } })
+      .mockResolvedValueOnce({ data: { history: { slots: [
+        { nzo_id: 'sab-failed', name: 'Star Wars - Survivors Quest (NMR) 2004 MP3', status: 'Failed', bytes: '1' },
+        { nzo_id: 'sab-done', name: 'Star.Wars.-.Survivors.Quest.(NMR).2004.MP3', status: 'Completed', bytes: '1', storage: '/downloads/sq' },
+        { nzo_id: 'other', name: 'Star Wars - Outbound Flight', status: 'Completed', bytes: '1' },
+      ] } } });
+
+    const service = new SABnzbdService('http://sab', 'key');
+    const found = await service.findDownloadByName('Star Wars - Survivors Quest (NMR) 2004 MP3', { includeHistory: true });
+
+    expect(found).toMatchObject({ id: 'sab-done', status: 'completed', downloadPath: '/downloads/sq' });
+  });
+
+  it('looks only at the queue unless history is asked for', async () => {
+    clientMock.get.mockResolvedValueOnce({ data: { queue: { slots: [] } } });
+    const service = new SABnzbdService('http://sab', 'key');
+    expect(await service.findDownloadByName('Star Wars - Survivors Quest (NMR) 2004 MP3')).toBeNull();
+    expect(clientMock.get).toHaveBeenCalledTimes(1);
   });
 
   it('returns an error message for connection timeouts', async () => {

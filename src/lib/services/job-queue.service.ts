@@ -85,6 +85,7 @@ export interface MonitorDownloadPayload extends JobPayload {
   stallCount?: number;    // Consecutive polls with no progress change (drives backoff)
   pathWaitCount?: number; // Consecutive polls waiting for content_path to relocate to save_path
   connectionFailureCount?: number; // Consecutive polls where the download client was unreachable
+  notFoundCount?: number; // Consecutive polls where the download wasn't in the client (by ID or name)
 }
 
 export interface OrganizeFilesPayload extends JobPayload {
@@ -771,7 +772,8 @@ export class JobQueueService {
     lastProgress?: number,
     stallCount?: number,
     pathWaitCount?: number,
-    connectionFailureCount?: number
+    connectionFailureCount?: number,
+    notFoundCount?: number
   ): Promise<string> {
     return await this.addJob(
       'monitor_download',
@@ -784,6 +786,7 @@ export class JobQueueService {
         stallCount,
         pathWaitCount,
         connectionFailureCount,
+        notFoundCount,
       } as MonitorDownloadPayload,
       {
         priority: 5, // Medium priority

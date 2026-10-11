@@ -10,6 +10,7 @@ import { getDownloadClientManager } from '../services/download-client-manager.se
 import { ProwlarrService } from '../integrations/prowlarr.service';
 import { RMABLogger } from '../utils/logger';
 import { isTransientConnectionError } from '../utils/connection-errors';
+import { findExistingDownload } from '../services/download-lookup';
 
 /**
  * Process download job
@@ -66,14 +67,28 @@ export async function processDownloadTorrent(payload: DownloadTorrentPayload): P
       sourceHeaders['X-Api-Key'] = prowlarrApiKey;
     }
 
-    // Add download via unified interface
-    const downloadClientId = await client.addDownload(torrent.downloadUrl, {
-      category,
-      priority: 'normal',
-      sourceHeaders,
-    });
+    // Same release already in the client's queue (usenet: added before, re-added there) →
+    // monitor that job instead of downloading a second copy
+    const alreadyQueued = await findExistingDownload(client, torrent.title).catch(() => null);
+    let downloadClientId: string;
+    if (alreadyQueued) {
+      downloadClientId = alreadyQueued.id;
+      logger.info(`"${alreadyQueued.name}" is already in ${client.clientType} (${alreadyQueued.status}, ID ${downloadClientId}) — monitoring it instead of adding a second copy`);
+    } else {
+      // Add download via unified interface
+      downloadClientId = await client.addDownload(torrent.downloadUrl, {
+        category,
+        priority: 'normal',
+        sourceHeaders,
+      });
+      logger.info(`Download added with ID: ${downloadClientId}`);
+    }
 
-    logger.info(`Download added with ID: ${downloadClientId}`);
+    // This attempt becomes the request's only selected download
+    await prisma.downloadHistory.updateMany({
+      where: { requestId, selected: true },
+      data: { selected: false },
+    });
 
     // Create DownloadHistory record
     // Determine indexer page URL - exclude magnet links from guid fallback

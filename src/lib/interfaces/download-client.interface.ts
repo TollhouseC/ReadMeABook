@@ -208,4 +208,11 @@ export interface IDownloadClient {
    * @param id - Download ID
    */
   getDownloadFiles?(id: string): Promise<string[]>;
+
+  /**
+   * Find a job by release name (usenet clients). Used when the saved ID is gone (the job was
+   * re-added/retried in the client under a new ID) and to avoid adding a release twice.
+   * Queue first; history (newest, non-failed preferred) when includeHistory is set.
+   */
+  findDownloadByName?(name: string, options?: { includeHistory?: boolean }): Promise<DownloadInfo | null>;
 }

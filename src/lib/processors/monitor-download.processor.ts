@@ -11,6 +11,7 @@ import { getConfigService } from '../services/config.service';
 import { getDownloadClientManager } from '../services/download-client-manager.service';
 import { CLIENT_PROTOCOL_MAP, DownloadClientType } from '../interfaces/download-client.interface';
 import { isTransientConnectionError } from '../utils/connection-errors';
+import { locateDownload } from '../services/download-lookup';
 
 /**
  * Process monitor download job
@@ -27,6 +28,12 @@ const MAX_POLL_INTERVAL = 300;
  * enough to survive a Docker restart, service update, or transient network outage.
  */
 const MAX_CONNECTION_FAILURES = 30;
+/**
+ * Consecutive "not found" checks (by ID and by release name) before failing the request.
+ * With the same backoff, 10 checks span ~35 minutes — a job briefly missing from the client
+ * (being re-added, moving to post-processing) no longer fails the request in seconds.
+ */
+const MAX_NOT_FOUND = 10;
 
 /**
  * Compute next poll delay with exponential backoff for stalled downloads.
@@ -40,9 +47,11 @@ function getBackoffDelay(stallCount: number): number {
 export async function processMonitorDownload(payload: MonitorDownloadPayload): Promise<any> {
   const { requestId, downloadHistoryId, downloadClientId, downloadClient, jobId,
           lastProgress: prevProgress, stallCount: prevStallCount, pathWaitCount: prevPathWaitCount,
-          connectionFailureCount: prevConnectionFailures } = payload;
+          connectionFailureCount: prevConnectionFailures, notFoundCount: prevNotFound } = payload;
 
   const logger = RMABLogger.forJob(jobId, 'MonitorDownload');
+  // The client may list the job under a new ID (retried/re-added there) — followed by name
+  let activeClientId = downloadClientId;
 
   try {
     // Stop quietly if this download was blacklisted (stalled) — its torrent has been
@@ -50,7 +59,7 @@ export async function processMonitorDownload(payload: MonitorDownloadPayload): P
     // poll would hit "not found" and eventually mark the re-searched request failed.
     const history = await prisma.downloadHistory.findUnique({
       where: { id: downloadHistoryId },
-      select: { downloadStatus: true, packFiles: true },
+      select: { downloadStatus: true, packFiles: true, torrentName: true },
     });
 
     // Series/author pack: several requests share this torrent, each importing its own
@@ -59,7 +68,7 @@ export async function processMonitorDownload(payload: MonitorDownloadPayload): P
     const getLinkedPackRows = async () => {
       if (!packFiles) return [];
       const rows = await prisma.downloadHistory.findMany({
-        where: { downloadClientId, id: { not: downloadHistoryId }, downloadStatus: 'downloading' },
+        where: { downloadClientId: activeClientId, id: { not: downloadHistoryId }, downloadStatus: 'downloading' },
         select: { id: true, requestId: true, packFiles: true },
       });
       return (rows || []).filter(r => Array.isArray(r.packFiles));
@@ -88,11 +97,20 @@ export async function processMonitorDownload(payload: MonitorDownloadPayload): P
       throw new Error(`No ${downloadClient} client configured`);
     }
 
-    // Get download status via unified interface
-    const info = await client.getDownload(downloadClientId);
+    // Get download status via unified interface (by ID, else by release name)
+    const located = await locateDownload(client, downloadClientId, history?.torrentName, logger);
 
-    if (!info) {
+    if (!located) {
       throw new Error(`Download ${downloadClientId} not found in ${downloadClient}`);
+    }
+    const info = located.info;
+    if (located.id !== downloadClientId) {
+      // Save the new ID (pack-linked rows share the download, so they move too)
+      await prisma.downloadHistory.updateMany({
+        where: { downloadClientId },
+        data: { downloadClientId: located.id, ...(client.protocol === 'usenet' && { nzbId: located.id }) },
+      });
+      activeClientId = located.id;
     }
 
     // Build progress object for request updates
@@ -157,7 +175,7 @@ export async function processMonitorDownload(payload: MonitorDownloadPayload): P
 
             const jobQueue = getJobQueueService();
             await jobQueue.addMonitorJob(
-              requestId, downloadHistoryId, downloadClientId, downloadClient,
+              requestId, downloadHistoryId, activeClientId, downloadClient,
               delay, 100, 0, waitCount
             );
 
@@ -330,7 +348,7 @@ export async function processMonitorDownload(payload: MonitorDownloadPayload): P
       await jobQueue.addMonitorJob(
         requestId,
         downloadHistoryId,
-        downloadClientId,
+        activeClientId,
         downloadClient,
         delay,
         progressPercent,
@@ -368,11 +386,18 @@ export async function processMonitorDownload(payload: MonitorDownloadPayload): P
     const isNotFound = errorMessage.includes('not found');
     const isConnectionError = isTransientConnectionError(error);
 
-    if (isNotFound) {
-      // PATH 1: "Not found" — transient race condition.
-      // Don't mark request as failed; let Bull retry the same job.
-      logger.warn(`Transient error for request ${requestId}, allowing Bull to retry`);
-      throw error;
+    // PATH 1: "Not found" (by ID and release name) — keep checking with backoff for ~35 min
+    // before failing; Bull's own retries (2s/4s) used to fail the request within seconds
+    const notFoundCount = (prevNotFound ?? 0) + 1;
+    if (isNotFound && notFoundCount < MAX_NOT_FOUND) {
+      const delay = getBackoffDelay(notFoundCount);
+      logger.warn(`Download not found in ${downloadClient} (${notFoundCount}/${MAX_NOT_FOUND}), checking again in ${delay}s for request ${requestId}`);
+      const jobQueue = getJobQueueService();
+      await jobQueue.addMonitorJob(
+        requestId, downloadHistoryId, activeClientId, downloadClient, delay,
+        prevProgress, prevStallCount ?? 0, prevPathWaitCount, prevConnectionFailures, notFoundCount
+      );
+      return { success: true, completed: false, message: `Download not found, checking again in ${delay}s`, requestId, notFoundCount };
     }
 
     if (isConnectionError) {
@@ -400,7 +425,7 @@ export async function processMonitorDownload(payload: MonitorDownloadPayload): P
         await jobQueue.addMonitorJob(
           requestId,
           downloadHistoryId,
-          downloadClientId,
+          activeClientId,
           downloadClient,
           delay,
           prevProgress,
@@ -421,9 +446,11 @@ export async function processMonitorDownload(payload: MonitorDownloadPayload): P
       }
     }
 
-    // PATH 3: Permanent error (or connection failures exhausted).
+    // PATH 3: Permanent error (or connection failures / not-found checks exhausted).
     // Mark request as failed immediately.
-    const failureMessage = errorMessage || 'Monitor download failed';
+    const failureMessage = isNotFound
+      ? `${errorMessage} (checked for ~35 min, also by release name)`
+      : errorMessage || 'Monitor download failed';
     await prisma.request.update({
       where: { id: requestId },
       data: {
@@ -454,6 +481,11 @@ export async function processMonitorDownload(payload: MonitorDownloadPayload): P
       ).catch((notifError) => {
         logger.error('Failed to queue notification', { error: notifError instanceof Error ? notifError.message : String(notifError) });
       });
+    }
+
+    // Not found after every check: done — a Bull retry would only repeat the failure + notification
+    if (isNotFound) {
+      return { success: false, completed: true, message: failureMessage, requestId };
     }
 
     // Rethrow to trigger Bull's retry mechanism as a safety net
