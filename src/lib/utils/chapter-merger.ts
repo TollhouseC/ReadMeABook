@@ -752,7 +752,8 @@ export async function mergeChapters(
     }
 
     // Validate merged file
-    const validation = await validateMergedFile(options.outputPath, totalDuration, logger);
+    // Source size (estimate minus its 10% overhead) lets the size check accept low-bitrate sources
+    const validation = await validateMergedFile(options.outputPath, totalDuration, logger, estimatedSize / 1.1);
 
     if (!validation.valid) {
       await logger?.error(`Output validation failed: ${validation.error}`);
@@ -811,7 +812,8 @@ export async function mergeChapters(
 async function validateMergedFile(
   outputPath: string,
   expectedDuration: number, // milliseconds
-  logger?: RMABLogger
+  logger?: RMABLogger,
+  sourceBytes?: number
 ): Promise<{ valid: boolean; error?: string; actualDuration?: number }> {
   try {
     await logger?.info('Validating merged file...');
@@ -862,7 +864,12 @@ async function validateMergedFile(
     const stats = await fs.stat(outputPath);
     const sizeMB = stats.size / 1024 / 1024;
     const durationMinutes = expectedDuration / 1000 / 60;
-    const expectedMinSize = durationMinutes * 0.4; // ~0.4MB per minute minimum (accommodates 64kbps encoding)
+    // ~0.4MB per minute (≈55 kbps) — but never more than half the source: a low-bitrate source
+    // (V Is for Vengeance: 156MB for 15h) legitimately encodes below that. Duration + decode
+    // checks above still catch truncation.
+    const perMinuteFloor = durationMinutes * 0.4;
+    const sourceMB = sourceBytes && sourceBytes > 0 ? sourceBytes / 1024 / 1024 : 0;
+    const expectedMinSize = sourceMB > 0 ? Math.min(perMinuteFloor, sourceMB * 0.5) : perMinuteFloor;
 
     if (sizeMB < expectedMinSize) {
       return {

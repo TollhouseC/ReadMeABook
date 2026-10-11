@@ -590,6 +590,31 @@ describe('chapter merger', () => {
     expect(result.error).toMatch(/File size too small/i);
   });
 
+  it('accepts a small output from a low-bitrate source (size floor capped at half the source)', async () => {
+    const outputPath = '/tmp/output.m4b';
+    // 15h at ~25 kbps mono: 156MB source → 263MB AAC is below 0.4MB/min (364MB) but fine
+    const hours15 = 15 * 3600 * 1000 + 11 * 60 * 1000;
+    const chapters = [{ path: '/tmp/v.mp3', filename: 'v.mp3', duration: hours15, bitrate: 24, chapterTitle: 'V' }];
+
+    fsMock.access.mockResolvedValue(undefined);
+    fsMock.stat.mockImplementation(async (filePath: string) => ({ size: (filePath === outputPath ? 263 : 156) * 1024 * 1024 }));
+    fsMock.mkdir.mockResolvedValue(undefined);
+    fsMock.writeFile.mockResolvedValue(undefined);
+    fsMock.unlink.mockResolvedValue(undefined);
+    mockExecImplementation((command) => {
+      if (command.startsWith('ffprobe')) {
+        return { stdout: JSON.stringify({ format: { duration: String(hours15 / 1000), bit_rate: '24000', tags: {} } }) };
+      }
+      return { stdout: '' };
+    });
+    spawnMock.mockReturnValue(createSpawnProcess(0));
+
+    const result = await mergeChapters(chapters, { title: 'V Is for Vengeance', author: 'Sue Grafton', outputPath });
+
+    expect(result.error).toBeUndefined();
+    expect(result.success).toBe(true);
+  });
+
   it('returns failure when validation encounters an error', async () => {
     const outputPath = '/tmp/output.m4b';
     const chapters = [

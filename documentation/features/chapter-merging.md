@@ -538,7 +538,7 @@ All merged files are validated before marked successful:
 
 1. **Duration Check:** Expected vs actual duration (within 2% tolerance)
 2. **Decode Test:** FFmpeg attempts to decode first and last 10 seconds (catches corruption/truncation)
-3. **Size Check:** File size reasonable for duration (~0.4MB/min minimum, accommodates 64kbps encoding)
+3. **Size Check:** File size reasonable for duration — min(~0.4MB/min, half the source size). The source cap (2026-10-11) stops low-bitrate sources failing: V Is for Vengeance (156MB MP3, 15h) encoded to 263MB was rejected as "too small" though duration and decode checks passed
 
 **If validation fails:**
 - Corrupt file is deleted
