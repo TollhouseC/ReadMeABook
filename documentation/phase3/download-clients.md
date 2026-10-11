@@ -148,7 +148,7 @@ finalPath = config.customPath ? path.join(downloadDir, config.customPath) : down
 - `IDownloadClient.findDownloadByName?(name, { includeHistory })` — SABnzbd (queue, then history 200), NZBGet (listgroups, then history newest first). `sameRelease`: alnum-lowercased names equal, or one a prefix of the other (≥12 chars); `pickRelease`: non-failed first.
 - **Monitor** (`monitor-download.processor.ts`): `locateDownload(client, id, torrentName)` = by ID, else by release name → new ID saved (`downloadHistory.updateMany` by old `downloadClientId`, also `nzbId`; pack-linked rows move too) and used for later polls. Still not found → re-check with backoff (`notFoundCount`, `MAX_NOT_FOUND` = 10 ≈ 35 min) → then request failed once (`… (checked for ~35 min, also by release name)`), no Bull retry.
 - **SABnzbd `getNZB`**: queue → newest 100 history → `mode=history&nzo_ids=<id>` (older entries).
-- **Retry** (`/api/admin/requests/[id]/retry-download`): saved ID not alive → `findExistingDownload(client, torrentName, { maxAgeMs: 3 days })` (queue, or completed within 3 days) → row updated to that ID, monitoring resumed (`resumed_monitoring`); else re-added.
+- **Retry** (admin Requests ⋮ → Retry Download, shown for every `failed` request — it used to need `downloadAttempts > 0`, which only retries/ebooks raise, so first failures had no Retry; `/api/admin/requests/[id]/retry-download`): saved ID not alive → `findExistingDownload(client, torrentName, { maxAgeMs: 3 days })` (queue, or completed within 3 days) → row updated to that ID, monitoring resumed (`resumed_monitoring`); else re-added.
 
 ### Migration
 **Auto-migration** from legacy single-client config to new JSON array format on first access:

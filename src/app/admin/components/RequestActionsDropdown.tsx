@@ -72,7 +72,9 @@ export function RequestActionsDropdown({
   // Determine available actions based on status
   const canSearch = ['pending', 'failed', 'awaiting_search'].includes(request.status);
   const canAdjustSearchTerms = ['pending', 'failed', 'awaiting_search', 'searching'].includes(request.status);
-  const canRetryDownload = request.status === 'failed' && (request.downloadAttempts ?? 0) > 0 && !!onRetryDownload;
+  // Any failed request: downloadAttempts only counts retries, so a first failure never showed it.
+  // No earlier download to retry → the API answers "No previous download attempt found".
+  const canRetryDownload = request.status === 'failed' && !!onRetryDownload;
   // Reset & Re-request: for requests wedged in a state the normal search can't recover
   // from (files downloaded/available/processing but corrupt or removed from library).
   const canReset = !!onReset && ['downloading', 'processing', 'downloaded', 'available'].includes(request.status);

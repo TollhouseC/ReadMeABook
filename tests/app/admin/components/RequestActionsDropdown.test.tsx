@@ -34,6 +34,20 @@ vi.mock('@/app/admin/components/AdjustSearchTermsModal', () => ({
 }));
 
 describe('RequestActionsDropdown', () => {
+  it('offers Retry Download on a request that failed on its first download', async () => {
+    const onRetryDownload = vi.fn().mockResolvedValue(undefined);
+    render(
+      <RequestActionsDropdown
+        request={{ requestId: 'req-sq', title: "Survivor's Quest", author: 'Timothy Zahn', status: 'failed', downloadAttempts: 0 }}
+        onRetryDownload={onRetryDownload}
+      />
+    );
+
+    fireEvent.click(screen.getByTitle('Actions'));
+    fireEvent.click(screen.getByText('Retry Download'));
+    await waitFor(() => expect(onRetryDownload).toHaveBeenCalledWith('req-sq'));
+  });
+
   it('exposes manual search, interactive search, cancel, and delete actions', async () => {
     const onManualSearch = vi.fn().mockResolvedValue(undefined);
     const onCancel = vi.fn().mockResolvedValue(undefined);
