@@ -13,7 +13,10 @@ const mocks = vi.hoisted(() => ({
   search: vi.fn(),
   configGet: vi.fn(),
   getBackendMode: vi.fn(),
+  skipList: vi.fn(),
 }));
+
+vi.mock('@/lib/db', () => ({ prisma: { configuration: { findUnique: mocks.skipList } } }));
 
 vi.mock('@/lib/services/audiobookshelf/api', () => ({
   getABSLibraryItems: mocks.getABSLibraryItems,
@@ -40,6 +43,7 @@ async function run(mode: 'report' | 'apply') {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getBackendMode.mockResolvedValue('audiobookshelf');
+  mocks.skipList.mockResolvedValue(null);
   mocks.configGet.mockResolvedValue('lib-1');
   mocks.getABSLibraryItems.mockResolvedValue([
     absItem('good', 'Terry Pratchett/Discworld/Mort', 'Mort', 'B0MORT', 7.5),
@@ -56,6 +60,14 @@ beforeEach(() => {
 });
 
 describe('processMatchLibrary', () => {
+  it('leaves out books on the skip list (Settings → Library)', async () => {
+    mocks.skipList.mockResolvedValue({ value: 'Terry Pratchett/Discworld/The Last Hero | match | checked, kept' });
+    const result = await run('report');
+
+    expect(result).toMatchObject({ checked: 2, suspects: 0, skipped_by_list: 1 });
+    expect(mocks.search).not.toHaveBeenCalled();
+  });
+
   it('reports a wrong match without changing it, searching only suspects', async () => {
     const result = await run('report');
 

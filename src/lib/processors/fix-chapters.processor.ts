@@ -221,7 +221,8 @@ async function processLibrary(mode: 'report' | 'apply', logger: RMABLogger, jobI
   const progress = createJobProgress(jobId, `${label} — finding books`, { cancellable: true });
   await progress.update(0, { force: true });
   const mediaDir = await getMediaDir();
-  const candidates = await collectCandidates(mediaDir, logger);
+  const { applySkipList, candidateSkipInfo } = await import('../services/library-skip-list');
+  const { kept: candidates, skipped: skippedByList } = await applySkipList(await collectCandidates(mediaDir, logger), 'chapters', candidateSkipInfo(mediaDir), logger);
   await logger.info(`Chapter ${apply ? 'fix' : 'check (report only)'}: ${candidates.length} book(s) to check`);
   await progress.update(0, { total: candidates.length, label, force: true });
   let cancelled = false;
@@ -269,7 +270,7 @@ async function processLibrary(mode: 'report' | 'apply', logger: RMABLogger, jobI
     `corrupt ${counts.corrupt}, failed ${counts.failed}`
   );
   if (counts.fixed > 0) await triggerLibraryScan(logger);
-  return { success: true, mode, checked: candidates.length, ...counts, ...(cancelled && CANCELLED_RESULT) };
+  return { success: true, mode, checked: candidates.length, skipped_by_list: skippedByList, ...counts, ...(cancelled && CANCELLED_RESULT) };
 }
 
 export async function processFixChapters(payload: FixChaptersPayload) {

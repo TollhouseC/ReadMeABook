@@ -7,6 +7,7 @@ import { Settings } from '../../lib/types';
 import { useLibrarySettings } from './useLibrarySettings';
 import { PlexSection } from './PlexSection';
 import { AudiobookshelfSection } from './AudiobookshelfSection';
+import { SkipListSection } from './SkipListSection';
 
 interface LibraryTabProps {
   settings: Settings;
@@ -45,6 +46,7 @@ export function LibraryTab({
   // Render appropriate section based on backend mode
   if (settings.backendMode === 'plex') {
     return (
+      <>
       <PlexSection
         settings={settings}
         onChange={onChange}
@@ -54,11 +56,14 @@ export function LibraryTab({
         testResult={plexTestResult}
         onTestConnection={handleTestPlexConnection}
       />
+      <SkipListSection />
+      </>
     );
   }
 
   if (settings.backendMode === 'audiobookshelf') {
     return (
+      <>
       <AudiobookshelfSection
         settings={settings}
         onChange={onChange}
@@ -68,6 +73,8 @@ export function LibraryTab({
         testResult={absTestResult}
         onTestConnection={handleTestABSConnection}
       />
+      <SkipListSection />
+      </>
     );
   }
 

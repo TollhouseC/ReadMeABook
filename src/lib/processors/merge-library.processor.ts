@@ -86,7 +86,11 @@ export async function processMergeLibrary(payload: MergeLibraryPayload) {
   const progress = createJobProgress(payload.jobId, `${label} — finding books`, { cancellable: true });
   await progress.update(0, { force: true });
 
-  const candidates = (await collectCandidates(await getMediaDir(), logger)).filter(c => c.folder);
+  const mediaDir = await getMediaDir();
+  const { applySkipList, candidateSkipInfo } = await import('../services/library-skip-list');
+  const { kept: candidates, skipped: skippedByList } = await applySkipList(
+    (await collectCandidates(mediaDir, logger)).filter(c => c.folder), 'merge', candidateSkipInfo(mediaDir), logger
+  );
   await logger.info(`Library merge ${apply ? '' : '(report only) '}: ${candidates.length} book folder(s) to check`);
   await progress.update(0, { total: candidates.length, label, force: true });
 
@@ -273,5 +277,5 @@ export async function processMergeLibrary(payload: MergeLibraryPayload) {
     `failed ${counts.failed} (single-file books: ${counts.single_file})`
   );
   if (counts.merged > 0 || counts.cleaned > 0 || counts.folders_removed > 0 || counts.converted > 0) await triggerLibraryScan(logger);
-  return { success: true, mode: apply ? 'apply' : 'report', checked: candidates.length, ...counts, ...(cancelled && CANCELLED_RESULT) };
+  return { success: true, mode: apply ? 'apply' : 'report', checked: candidates.length, skipped_by_list: skippedByList, ...counts, ...(cancelled && CANCELLED_RESULT) };
 }

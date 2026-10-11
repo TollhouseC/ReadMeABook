@@ -112,7 +112,12 @@ export async function processMatchLibrary(payload: MatchLibraryPayload) {
     await logger.info(`No audio — not checked (${noAudio.length}; ebook in the audiobook library or an empty folder?): ${noAudio.slice(0, 25).map(i => `"${i.relPath}"`).join(', ')}${noAudio.length > 25 ? ', …' : ''}`);
   }
   const mediaDir = await getMediaDir();
-  const suspects = cancelled ? [] : findSuspects(items.filter(i => i.durationSec), products);
+  // Books the admin checked and kept (Settings → Library → Skip List)
+  const { applySkipList } = await import('../services/library-skip-list');
+  const { kept: toCheck, skipped: skippedByList } = await applySkipList(
+    items.filter(i => i.durationSec), 'match', i => ({ relPath: i.relPath, asin: i.asin, title: i.relPath }), logger
+  );
+  const suspects = cancelled ? [] : findSuspects(toCheck, products);
   await logger.info(
     `Library match ${apply ? '' : '(report only) '}: ${items.length} item(s), ${asins.length} ASIN(s) — ` +
     `${products.size} found on Audible; ${suspects.length} suspect match(es) to check (release language: ${language})`
@@ -235,7 +240,7 @@ export async function processMatchLibrary(payload: MatchLibraryPayload) {
     `not on Audible ${counts.not_found}, other edition (fine) ${counts.other_edition}, match fine ${counts.ok}, failed ${counts.failed}`
   );
   return {
-    success: true, mode: apply ? 'apply' : 'report', checked: items.length, suspects: suspects.length, ...counts,
+    success: true, mode: apply ? 'apply' : 'report', checked: items.length, suspects: suspects.length, skipped_by_list: skippedByList, ...counts,
     ...(cancelled && CANCELLED_RESULT),
   };
 }

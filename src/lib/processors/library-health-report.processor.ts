@@ -58,7 +58,7 @@ export const HEALTH_CHECKS: Check[] = [
 /** Counts that are just "how many were looked at / fine" — left out of the summary. */
 const QUIET_KEYS = new Set([
   'checked', 'books', 'suspects', 'in_place', 'kept', 'ok', 'other_edition', 'skipped', 'not_single_file',
-  'single_file', 'no_runtime', 'already_synced', 'in_sync', 'unchanged',
+  'single_file', 'no_runtime', 'already_synced', 'in_sync', 'unchanged', 'skipped_by_list',
 ]);
 
 /** "would_clean: 17, files_to_remove: 21" — the numbers worth acting on; "nothing to do" otherwise. */

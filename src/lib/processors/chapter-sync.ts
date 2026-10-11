@@ -28,7 +28,11 @@ export async function processChapterSync(apply: boolean, logger: RMABLogger, job
     return { success: true, mode: apply ? 'sync_apply' : 'sync_report', checked: 0 };
   }
 
-  const candidates = (await collectCandidates(await getMediaDir(), logger)).filter(c => c.absItemId);
+  const mediaDir = await getMediaDir();
+  const { applySkipList, candidateSkipInfo } = await import('../services/library-skip-list');
+  const { kept: candidates, skipped: skippedByList } = await applySkipList(
+    (await collectCandidates(mediaDir, logger)).filter(c => c.absItemId), 'chapters', candidateSkipInfo(mediaDir), logger
+  );
   await logger.info(`Chapter sync ${apply ? '' : '(report only) '}: ${candidates.length} Audiobookshelf book(s) to compare`);
   await progress.update(0, { total: candidates.length, label, force: true });
 
@@ -79,5 +83,5 @@ export async function processChapterSync(apply: boolean, logger: RMABLogger, job
     `Chapter sync ${cancelled ? 'cancelled' : 'complete'} — ${apply ? `synced ${counts.synced}` : `would sync ${counts.would_sync}`}, ` +
     `already in sync ${counts.in_sync}, multi-file ${counts.not_single_file}, failed ${counts.failed}`
   );
-  return { success: true, mode: apply ? 'sync_apply' : 'sync_report', checked: candidates.length, ...counts, ...(cancelled && CANCELLED_RESULT) };
+  return { success: true, mode: apply ? 'sync_apply' : 'sync_report', checked: candidates.length, skipped_by_list: skippedByList, ...counts, ...(cancelled && CANCELLED_RESULT) };
 }

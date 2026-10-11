@@ -97,6 +97,7 @@
 - **Library scan without the 12h missing-item wait (Library Scan (No Wait))** → [backend/services/jobs.md](backend/services/jobs.md)
 - **Library Health Report (all library checks, Report Only, one log, monthly)** → [backend/services/jobs.md](backend/services/jobs.md)
 - **Request stuck in 'processing' after a restart (interrupted import recovery)** → [backend/services/jobs.md](backend/services/jobs.md#interrupted-import-recovery)
+- **Skip list: books left out of library report jobs (Settings → Library)** → [backend/services/jobs.md](backend/services/jobs.md)
 - **Job types:** search, download monitor, organize, Plex scan, cleanup, retries
 
 ## Logging
